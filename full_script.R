@@ -2,10 +2,14 @@
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(DataExplorer)) install.packages("DataExplorer", repos = "http://cran.us.r-project.org")
+if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
+if(!require(gridExtra)) install.packages("caret", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(data.table)
 library(DataExplorer)
+library(gridExtra)
+library(caret)
 
 #Download data description
 names_file <- tempfile()
@@ -64,6 +68,320 @@ flare_data <- flare_data[-1]
 flare_data <- str_split(flare_data, "\\s", simplify = TRUE)
 colnames(flare_data) <- c(att_inf[1:10,1], att_inf[12:14,1]) 
 #Some column names are a little wordy, abbreviate in att_inf and reassign.
-att_inf <- cbind(att_inf, att_abb = c("Modified-Zurich Class Code", "Largest spot size code", "Spot dist code", "Activity", "Evolution", "Flare activity code", "Historically-complex", "Recently historically-complex", "Area", "Largest spot area", "/" ,"C-class flares (common)", "M-class flares (moderate)", "X-class flares (severe)"))
+att_inf <- cbind(att_inf, att_abb = c("Mod-Zur_Class_Code", "Lrgst_spot_size_code", "Spot_dist_code", "Activity", "Evolution", "Flare_activity_code", "Historically_complex", "Recent_historically_complex", "Area", "Lrgst_spot_area", "/" ,"C-class_flares_(common)", "M-class_flares_(moderate)", "X-class_flares_(severe)"))
 colnames(flare_data) <- c(att_inf[1:10,3], att_inf[12:14,3]) 
 
+#According to att_inf, columns 1-10 should be factors, and 11-13, numeric. Convert to data frame and adjust classes
+flare_data <- as.data.frame(flare_data, stringsAsFactors = TRUE)
+flare_data$`C-class_flares_(common)` <- as.numeric(levels(flare_data$`C-class_flares_(common)`)[flare_data$`C-class_flares_(common)`])
+flare_data$`M-class_flares_(moderate)` <- as.numeric(levels(flare_data$`M-class_flares_(moderate)`)[flare_data$`M-class_flares_(moderate)`])
+flare_data$`X-class_flares_(severe)` <- as.numeric(levels(flare_data$`X-class_flares_(severe)`)[flare_data$`X-class_flares_(severe)`])
+
+
+#Examine data
+introduce(flare_data)
+str(flare_data)
+plot_str(flare_data)
+#No missing values
+#The three numeric vectors are the target variables
+#distribution of flare counts
+
+c_class_dist <- flare_data %>% group_by(flare_data[11]) %>% summarize(n = n())
+m_class_dist <- flare_data %>% group_by(flare_data[12]) %>% summarize(n = n())
+x_class_dist <- flare_data %>% group_by(flare_data[13]) %>% summarize(n = n())
+
+ggplot() +
+  geom_bar(aes(c_class_dist$`C-class_flares_(common)`, c_class_dist$n), stat = "identity") +
+  xlab("C-Class flare count") +
+  ylab("n")
+
+1 - c_class_dist$n[1]/sum(c_class_dist$n)
+#Little over 17% of observations had subsequent activity
+
+ggplot() +
+  geom_bar(aes(m_class_dist$`M-class_flares_(moderate)`, m_class_dist$n), stat = "identity") +
+  xlab("M-Class flare count") +
+  ylab("n")
+
+1 - m_class_dist$n[1]/sum(m_class_dist$n)
+#Little over 3% of observations had subsequent activity
+
+ggplot() +
+  geom_bar(aes(x_class_dist$`X-class_flares_(severe)`, x_class_dist$n), stat = "identity") +
+  xlab("X-Class flare count") +
+  ylab("n")
+
+1 - x_class_dist$n[1]/sum(x_class_dist$n)
+#Less than 1% of observations had subsequent activity
+
+#Examine the distribution of the ten data frame features in relation to three target variables
+
+#determine max. flare count for Classes to standardise scales.
+max(flare_data[11:13])
+flare_data %>% filter(flare_data[11] > 0) %>% nrow()
+
+feature_ind <- seq(1, 10, 1)
+pred_ind <- seq(11, 13, 1)
+
+class_plots <- lapply(feature_ind, function(f_ind){
+  lapply(pred_ind, function(p_ind){
+  flare_data %>%
+    ggplot(aes(flare_data[,f_ind], flare_data[,p_ind])) +
+    geom_jitter(width = 0.2, height = 0.1, alpha = 0.2, color = p_ind - 1) + #(-1 on p_ind in color for clarity until I add new palette)
+    ggtitle(colnames(flare_data[p_ind])) +
+    xlab(colnames(flare_data[f_ind])) + 
+    ylab("no. flares") + 
+    ylim(0, 8)
+  })
+})
+
+#arrange by feature (1-10)
+feature_grids <- lapply(feature_ind, function(f_ind){
+  grid.arrange(grobs = class_plots[[f_ind]], ncol = 3)
+})
+
+#arrange by each flare class (1-3, c,m,x)
+class_no <- seq(1,3,1) 
+class_grids <- lapply(class_no, function(p_ind){
+  grid.arrange(class_plots[[1]][[p_ind]], class_plots[[2]][[p_ind]], class_plots[[3]][[p_ind]], class_plots[[4]][[p_ind]], class_plots[[5]][[p_ind]], class_plots[[6]][[p_ind]], class_plots[[7]][[p_ind]], class_plots[[8]][[p_ind]], class_plots[[9]][[p_ind]], class_plots[[10]][[p_ind]], ncol = 5)
+})
+
+#The majority of the active regions on the Sun produced no solar flares of any class in the following 24 hours.
+#Look at distribution where there is flare activity
+
+#flare_data %>% group_by(`Mod-Zur_Class_Code`, `C-class_flares_(common)`) %>%
+#  summarize(n = n()) %>%
+#  ggplot(aes(`Mod-Zur_Class_Code`, n, fill = as_factor(`C-class_flares_(common)`))) +
+#  geom_bar(position = position_dodge(width = 1, preserve = "single"), stat = "identity") +
+#  guides(fill=guide_legend(title = "Flare Count")) +
+#  xlab("Mod-Zur_Class_Code") +
+#  ggtitle("C-class_flares_(common)")
+
+#Replicate the above for all features and flare classes
+dist_plots <- lapply(feature_ind, function(f_ind){
+  lapply(pred_ind, function(p_ind){
+  flare_data %>%
+    mutate("feature_name" = flare_data[,f_ind], "flare_count" = flare_data[,p_ind]) %>%
+    group_by(feature_name, flare_count) %>%
+    summarize(n = n()) %>%
+    ggplot(aes(feature_name, n, fill = as_factor(flare_count))) +
+    geom_bar(position = position_dodge2(preserve = "single"), stat = "identity") +
+    guides(fill=guide_legend(title = "Flare Count")) +
+    xlab(colnames(flare_data[f_ind])) +
+    ggtitle(colnames(flare_data[p_ind]))
+  })
+})
+
+#arrange by feature (1-10)
+feature_dist_grids <- lapply(feature_ind, function(f_ind){
+  grid.arrange(grobs = dist_plots[[f_ind]], ncol = 3)
+})  
+
+#arrange by each flare class (1-3, c,m,x)
+class_dist_grids <- lapply(class_no, function(p_ind){
+  grid.arrange(dist_plots[[1]][[p_ind]], dist_plots[[2]][[p_ind]], dist_plots[[3]][[p_ind]], dist_plots[[4]][[p_ind]], dist_plots[[5]][[p_ind]], dist_plots[[6]][[p_ind]], dist_plots[[7]][[p_ind]], dist_plots[[8]][[p_ind]], dist_plots[[9]][[p_ind]], dist_plots[[10]][[p_ind]], ncol = 5)
+})
+
+
+#zero flares dominates observations, potentially obscuring relationships. Filter to remove and add y limits for comparisons
+y_lim_calc <- lapply(feature_ind, function(f_ind){
+  lapply(pred_ind, function(p_ind){
+    flare_data %>%
+    mutate("feature_name" = flare_data[,f_ind], "flare_count" = flare_data[,p_ind]) %>%
+    filter(flare_count > 0) %>%
+    group_by(feature_name, flare_count) %>%
+    summarize(n = n()) %>% 
+    summarize(max_flare_cnt_instance = max(n))
+  })
+}) %>% 
+  unlist(recursive = FALSE) %>%
+  map_df(~as.data.frame(.))
+  max(y_lim_calc$max_flare_cnt_instance)
+
+#maximum value 112, set y-lim to 120
+
+dist_plots_filt <- lapply(feature_ind, function(f_ind){
+  lapply(pred_ind, function(p_ind){
+    flare_data %>%
+      mutate("feature_name" = flare_data[,f_ind], "flare_count" = flare_data[,p_ind]) %>%
+      filter(flare_count > 0) %>%
+      group_by(feature_name, flare_count) %>%
+      summarize(n = n()) %>%
+      ggplot(aes(feature_name, n, fill = as_factor(flare_count))) +
+      geom_bar(position = position_dodge2(preserve = "single"), stat = "identity") +
+      guides(fill=guide_legend(title = "Flare Count")) +
+      xlab(colnames(flare_data[f_ind])) +
+      ggtitle(colnames(flare_data[p_ind])) +
+      ylim(0, 120)
+  })
+})
+
+#arrange by feature (1-10)
+filt_feature_dist_grids <- lapply(feature_ind, function(f_ind){
+  grid.arrange(grobs = dist_plots_filt[[f_ind]], ncol = 3)
+})  
+
+#arrange by each flare class (1-3, c,m,x)
+filt_class_dist_grids <- lapply(class_no, function(p_ind){
+  grid.arrange(dist_plots_filt[[1]][[p_ind]], dist_plots_filt[[2]][[p_ind]], dist_plots_filt[[3]][[p_ind]], dist_plots_filt[[4]][[p_ind]], dist_plots_filt[[5]][[p_ind]], dist_plots_filt[[6]][[p_ind]], dist_plots_filt[[7]][[p_ind]], dist_plots_filt[[8]][[p_ind]], dist_plots_filt[[9]][[p_ind]], dist_plots_filt[[10]][[p_ind]], ncol = 5)
+})
+
+
+#Flare activity is very low for m and x class flares so there is very little data that can be used to model. While
+#C class is only ~17% there may be something that can be assembled but from here investigation is focused on model
+#generation for c-class predictions
+grid.arrange(class_dist_grids[[1]])
+grid.arrange(filt_class_dist_grids[[1]])
+
+#Where observations with zero flares in subsequent 24hours are removed reasonably clear relationships are observed. 
+#To summarise
+
+#1 Code for class (modified Zurich class)
+#Class D is most likely
+#2 Code for largest spot size
+#S & A spots most likely
+#3 Code for spot distribution
+#I & O distribution most likely
+#4 Activity
+#Activity is typically reduced
+#5 Evolution
+#Growth or no-growth usually observed, decay is rare
+#6 Previous 24 hour flare activity code
+#Usually 1,  nothing as big as an M1
+#7 Historically-complex
+#Fairly even split, tending towards 2, not historically complex
+#8 Did region become historically complex on this pass across the sun's disk
+#Mostly not
+#9 Area
+#Area is mostly small
+#10 Area of the largest spot
+#Always <= 5
+
+#Can these relationships be refined if we each variable against each other and flare count
+feature_ind_1 <- seq(1, 10, 1)
+feature_ind_2 <- seq(1, 10, 1)
+
+variable_plots <- lapply(feature_ind_1, function(f_ind1){
+  lapply(feature_ind_2, function(f_ind2){
+    flare_data %>%
+    mutate("feature_x" = flare_data[,f_ind1], "feature_y" = flare_data[,f_ind2]) %>%
+    group_by(feature_x, feature_y) %>%
+      summarise(n = n()) %>%
+      ggplot(aes(feature_x, feature_y)) +
+      geom_point(aes(size = n)) +
+      scale_size(limits =c(0,1250)) +
+      xlab(colnames(flare_data[f_ind1])) +
+      ylab(colnames(flare_data[f_ind2]))
+  })
+})
+
+#flare_data %>%
+#  group_by(Flare_activity_code, x) %>%
+#  summarise(n = n()) %>%
+#  ggplot(aes(`Mod-Zur_Class_Code`, Lrgst_spot_size_code)) +
+#  geom_point(aes(color = n, size = n))
+
+#10x10 grid may make interpretation a little challenging, grid formed per variable
+variable_grid <- lapply(feature_ind_1, function(f_ind1){
+  grid.arrange(grobs = variable_plots[[f_ind1]], ncol = 5)
+})
+grid.arrange(variable_grid[[6]])
+#Compare to flare_data filtered for events > 0
+filt_variable_plots <- lapply(feature_ind_1, function(f_ind1){
+  lapply(feature_ind_2, function(f_ind2){
+    flare_data %>%
+      mutate("feature_x" = flare_data[,f_ind1], "feature_y" = flare_data[,f_ind2]) %>%
+      filter(`C-class_flares_(common)` > 0) %>%
+      group_by(feature_x, feature_y) %>%
+      summarise(n = n()) %>%
+      ggplot(aes(feature_x, feature_y)) +
+      geom_point(aes(size = n)) +
+      scale_size(limits =c(0,1250)) +
+      xlab(colnames(flare_data[f_ind1])) +
+      ylab(colnames(flare_data[f_ind2]))
+  })
+})
+
+filt_variable_grid <- lapply(feature_ind_1, function(f_ind1){
+  grid.arrange(grobs = filt_variable_plots[[f_ind1]], ncol = 5)
+})
+
+#Far easier to compare filtered and unfiltered plots next to each other. Arrange
+layout_matr <- rbind(c(1,2,3,4,5),
+                     c(6,7,8,9,10))
+comb_variable_grid <- lapply(feature_ind_1, function(f_ind1, f_ind2){
+  marrangeGrob(c(variable_plots[[f_ind1]][1:5], filt_variable_plots[[f_ind1]][1:5],variable_plots[[f_ind1]][6:10], filt_variable_plots[[f_ind1]][6:10]), ncol = 5, nrow = 2, layout_matrix = layout_matr,  top="unfiltered", bottom="filtered")
+})
+
+#1 Code for class (modified Zurich class)
+comb_variable_grid[[1]]
+#2 Code for largest spot size
+comb_variable_grid[[2]]
+#3 Code for spot distribution
+comb_variable_grid[[3]]
+#4 Activity
+comb_variable_grid[[4]]
+#5 Evolution
+comb_variable_grid[[5]]
+#6 Previous 24 hour flare activity code
+comb_variable_grid[[6]]
+#7 Historically-complex
+comb_variable_grid[[7]]
+#8 Did region become historically complex on this pass across the sun's disk
+comb_variable_grid[[8]]
+#9 Area
+comb_variable_grid[[9]]
+#10 Area of the largest spot
+comb_variable_grid[[10]]
+#There appear to be very few differences in the distributions in the above plots and all of these could easily be
+#explained by the lower sample size.
+
+#Returning to the earlier observations, we should construct a model using the following variables.
+#Code for class (modified Zurich class)
+#Code for largest spot size
+#Code for spot distribution
+#Activity
+#Evolution
+#Previous 24 hour flare activity code
+#Did region become historically complex on this pass across the sun's disk
+#Area
+
+#Potentially Historically-complex variable, though the fairly even split indicate it is of low relevance 
+
+
+#Need to return number of flares to categorical/discrete for predictions?
+flare_data$`C-class_flares_(common)` <- as.factor(flare_data$`C-class_flares_(common)`)
+
+#straightforward split of data to training and testing set will be challenging due to imbalanced set.
+#Need to create stratified split.
+#createDataPartition in Caret packet can be utilised.
+#70-30 Train-Test split seems reasonable 
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = feature_data$critical_temp, times = 1, p = 0.25, list = FALSE)
+feat_train <- feature_data[-test_index,]
+feat_test <- feature_data[test_index,]
+
+https://machinelearningmastery.com/cross-validation-for-imbalanced-classification/
+#how to fit the above into caret?
+
+  
+  
+https://stats.idre.ucla.edu/r/dae/poisson-regression/
+glm family poisson
+random forest - ranger?
+
+  
+
+#Evaluation metrics
+#accuracy unsuitable due to prevalence of zero c-class flares in subsequent 24 hours 
+#F score can be used for imbalanced datasets
+https://towardsdatascience.com/multi-class-metrics-made-simple-part-ii-the-f1-score-ebe8b2c2ca1
+#Also ROC curve/analysis could also work but is sensitive to heavily weighted data, possible approach using 
+#precision-recall curve
+https://machinelearningmastery.com/tour-of-evaluation-metrics-for-imbalanced-classification/
+#from above linked chart, gmean?
+https://topepo.github.io/caret/measuring-performance.html#measures-for-predicted-classes
+  
+#Another thing to consider are posterior predictive checks (check also here). The idea is to simulate some random data
+#using your model and then compare the distribution of simulated data, to the real data to check when and how they are
+#similar to each other.
