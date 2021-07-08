@@ -3,7 +3,8 @@ if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(DataExplorer)) install.packages("DataExplorer", repos = "http://cran.us.r-project.org")
 if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
-if(!require(gridExtra)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+
 
 library(tidyverse)
 library(data.table)
@@ -348,40 +349,61 @@ comb_variable_grid[[10]]
 
 #Potentially Historically-complex variable, though the fairly even split indicate it is of low relevance 
 
-
 #Need to return number of flares to categorical/discrete for predictions?
 flare_data$`C-class_flares_(common)` <- as.factor(flare_data$`C-class_flares_(common)`)
 
 #straightforward split of data to training and testing set will be challenging due to imbalanced set.
 #Need to create stratified split.
 #createDataPartition in Caret packet can be utilised.
-#70-30 Train-Test split seems reasonable 
+#70-30 Train-Test split seems reasonable considering the distribution of C-class flare counts.
+#Further to this, looking at the distribution of target observations and the plots in the EDA it is highly likely 
+#there is insufficient data to predict outcomes for values 4-8, and to leave them in will only negatively affect the 
+#classification model.  
+#These are filtered and the dataset split
+
+flare_data <- rename(flare_data, C_class = `C-class_flares_(common)`)
+flare_data_split <- filter(flare_data, !C_class %in% c("8", "6", "5", "4")) %>% droplevels()
+
 set.seed(1, sample.kind="Rounding")
-test_index <- createDataPartition(y = feature_data$critical_temp, times = 1, p = 0.25, list = FALSE)
-feat_train <- feature_data[-test_index,]
-feat_test <- feature_data[test_index,]
+train_index <- createDataPartition(y = flare_data_split$C_class, times = 1, p = 0.7, list = FALSE)
+flare_train <- flare_data_split[train_index,] %>% select(-Lrgst_spot_area, -`M-class_flares_(moderate)`, -`X-class_flares_(severe)`)
+flare_test <- flare_data_split[-train_index,] %>% select(-Lrgst_spot_area, -`M-class_flares_(moderate)`, -`X-class_flares_(severe)`)
 
-https://machinelearningmastery.com/cross-validation-for-imbalanced-classification/
-#how to fit the above into caret?
+#Data will oversampled to attempt to address the imbalance in the data.
+#10x5 repeated cross validation to be used with each sampling method.
 
-  
-  
-https://stats.idre.ucla.edu/r/dae/poisson-regression/
-glm family poisson
-random forest - ranger?
-
-  
+#Resulting model used for prediction with the test set and the results compared.
 
 #Evaluation metrics
-#accuracy unsuitable due to prevalence of zero c-class flares in subsequent 24 hours 
-#F score can be used for imbalanced datasets
-https://towardsdatascience.com/multi-class-metrics-made-simple-part-ii-the-f1-score-ebe8b2c2ca1
-#Also ROC curve/analysis could also work but is sensitive to heavily weighted data, possible approach using 
-#precision-recall curve
-https://machinelearningmastery.com/tour-of-evaluation-metrics-for-imbalanced-classification/
-#from above linked chart, gmean?
-https://topepo.github.io/caret/measuring-performance.html#measures-for-predicted-classes
-  
-#Another thing to consider are posterior predictive checks (check also here). The idea is to simulate some random data
-#using your model and then compare the distribution of simulated data, to the real data to check when and how they are
-#similar to each other.
+#Evaluation metrics for imbalanced multiclass classification models can be challenging,
+#accuracy and error rate unsuitable due to prevalence of zero c-class flares in subsequent 24 hours 
+#balanced/weighted accuracy can assist with this.
+#ROC or Precision-Recall AUC could be used if the output is binarized.
+#F score can be used for imbalanced datasets, weighted F score can be better.
+
+#Evaluation metric to be used is Macro-averaged F1 score,  This takes accounts for the imbalanced proportions of the
+#different classes in the dataset. 
+
+#To begin, random forest model applied using ranger.
+set.seed(1, sample.kind="Rounding")
+base_ranger_fit <- train(C_class ~ ., method = "ranger", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "up", savePredictions = "final"))
+
+#base_ranger_fit_cm <- confusionMatrix(base_ranger_fit[["pred"]][["pred"]], base_ranger_fit[["pred"]][["obs"]], mode = "prec_recall")
+
+base_ranger_fit_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_ranger_fit_cm_matr)){
+  positive.class <- levels(flare_train$C_class)[i]
+  base_ranger_fit_cm_matr[[i]] <- confusionMatrix(base_ranger_fit[["pred"]][["pred"]], base_ranger_fit[["pred"]][["obs"]], positive = positive.class)
+}
+
+macro_f1_score <- function(base_ranger_fit_cm_matr){
+  con_matr <- base_ranger_fit_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+macro_f1_base_ranger <- macro_f1_score(base_ranger_fit_cm_matr)
+macro_f1_base_ranger
+#poor result
