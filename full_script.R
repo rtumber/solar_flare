@@ -4,13 +4,19 @@ if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.
 if(!require(DataExplorer)) install.packages("DataExplorer", repos = "http://cran.us.r-project.org")
 if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(caTools)) install.packages("caTools", repos = "http://cran.us.r-project.org")
+if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-project.org")
+if(!require(ROSE)) install.packages("ROSE", repos = "http://cran.us.r-project.org")
 
 
-library(tidyverse)
 library(data.table)
 library(DataExplorer)
 library(gridExtra)
+library(caTools)
+library(kernlab)
 library(caret)
+library(tidyverse)
+library(ROSE)
 
 #Download data description
 names_file <- tempfile()
@@ -60,16 +66,17 @@ data_file <- tempfile()
 download.file("https://archive.ics.uci.edu/ml/machine-learning-databases/solar-flare/flare.data2", data_file)
 
 length(readLines(data_file)) #number of records matches that described in description
-flare_data <- readLines(data_file)
+flare_raw <- readLines(data_file)
 rm(data_file)
 
 #Arrange into something useful  
+flare_data <- flare_raw
 print(flare_data)
 flare_data <- flare_data[-1]
 flare_data <- str_split(flare_data, "\\s", simplify = TRUE)
 colnames(flare_data) <- c(att_inf[1:10,1], att_inf[12:14,1]) 
 #Some column names are a little wordy, abbreviate in att_inf and reassign.
-att_inf <- cbind(att_inf, att_abb = c("Mod-Zur_Class_Code", "Lrgst_spot_size_code", "Spot_dist_code", "Activity", "Evolution", "Flare_activity_code", "Historically_complex", "Recent_historically_complex", "Area", "Lrgst_spot_area", "/" ,"C-class_flares_(common)", "M-class_flares_(moderate)", "X-class_flares_(severe)"))
+att_inf <- cbind(att_inf, att_abb = c("Mod_Zur_Class_Code", "Lrgst_spot_size_code", "Spot_dist_code", "Activity", "Evolution", "Flare_activity_code", "Historically_complex", "Recent_historically_complex", "Area", "Lrgst_spot_area", "/" ,"C-class_flares_(common)", "M-class_flares_(moderate)", "X-class_flares_(severe)"))
 colnames(flare_data) <- c(att_inf[1:10,3], att_inf[12:14,3]) 
 
 #According to att_inf, columns 1-10 should be factors, and 11-13, numeric. Convert to data frame and adjust classes
@@ -150,12 +157,12 @@ class_grids <- lapply(class_no, function(p_ind){
 #The majority of the active regions on the Sun produced no solar flares of any class in the following 24 hours.
 #Look at distribution where there is flare activity
 
-#flare_data %>% group_by(`Mod-Zur_Class_Code`, `C-class_flares_(common)`) %>%
+#flare_data %>% group_by(`Mod_Zur_Class_Code`, `C-class_flares_(common)`) %>%
 #  summarize(n = n()) %>%
-#  ggplot(aes(`Mod-Zur_Class_Code`, n, fill = as_factor(`C-class_flares_(common)`))) +
+#  ggplot(aes(`Mod_Zur_Class_Code`, n, fill = as_factor(`C-class_flares_(common)`))) +
 #  geom_bar(position = position_dodge(width = 1, preserve = "single"), stat = "identity") +
 #  guides(fill=guide_legend(title = "Flare Count")) +
-#  xlab("Mod-Zur_Class_Code") +
+#  xlab("Mod_Zur_Class_Code") +
 #  ggtitle("C-class_flares_(common)")
 
 #Replicate the above for all features and flare classes
@@ -279,7 +286,7 @@ variable_plots <- lapply(feature_ind_1, function(f_ind1){
 #flare_data %>%
 #  group_by(Flare_activity_code, x) %>%
 #  summarise(n = n()) %>%
-#  ggplot(aes(`Mod-Zur_Class_Code`, Lrgst_spot_size_code)) +
+#  ggplot(aes(`Mod_Zur_Class_Code`, Lrgst_spot_size_code)) +
 #  geom_point(aes(color = n, size = n))
 
 #10x10 grid may make interpretation a little challenging, grid formed per variable
@@ -369,8 +376,8 @@ train_index <- createDataPartition(y = flare_data_split$C_class, times = 1, p = 
 flare_train <- flare_data_split[train_index,] %>% select(-Lrgst_spot_area, -`M-class_flares_(moderate)`, -`X-class_flares_(severe)`)
 flare_test <- flare_data_split[-train_index,] %>% select(-Lrgst_spot_area, -`M-class_flares_(moderate)`, -`X-class_flares_(severe)`)
 
-#Data will oversampled to attempt to address the imbalance in the data.
-#10x5 repeated cross validation to be used with each sampling method.
+#Data will be up-sampled and down-sampled to attempt to identify the best method for addressing the imbalance in the
+#data.10x5 repeated cross validation to be used with each sampling method.
 
 #Resulting model used for prediction with the test set and the results compared.
 
@@ -382,28 +389,280 @@ flare_test <- flare_data_split[-train_index,] %>% select(-Lrgst_spot_area, -`M-c
 #F score can be used for imbalanced datasets, weighted F score can be better.
 
 #Evaluation metric to be used is Macro-averaged F1 score,  This takes accounts for the imbalanced proportions of the
-#different classes in the dataset. 
+#different classes in the dataset. Value of one is defines perfect precision/recall.
 
 #To begin, random forest model applied using ranger.
 set.seed(1, sample.kind="Rounding")
-base_ranger_fit <- train(C_class ~ ., method = "ranger", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "up", savePredictions = "final"))
+base_ranger_fit_us <- train(C_class ~ ., method = "ranger", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "up", savePredictions = "final"))
 
-#base_ranger_fit_cm <- confusionMatrix(base_ranger_fit[["pred"]][["pred"]], base_ranger_fit[["pred"]][["obs"]], mode = "prec_recall")
-
-base_ranger_fit_cm_matr <- vector("list", length(levels(flare_train$C_class)))
-for (i in seq_along(base_ranger_fit_cm_matr)){
+base_ranger_fit_us_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_ranger_fit_us_cm_matr)){
   positive.class <- levels(flare_train$C_class)[i]
-  base_ranger_fit_cm_matr[[i]] <- confusionMatrix(base_ranger_fit[["pred"]][["pred"]], base_ranger_fit[["pred"]][["obs"]], positive = positive.class)
+  base_ranger_fit_us_cm_matr[[i]] <- confusionMatrix(base_ranger_fit_us[["pred"]][["pred"]], base_ranger_fit_us[["pred"]][["obs"]], positive = positive.class)
 }
 
-macro_f1_score <- function(base_ranger_fit_cm_matr){
-  con_matr <- base_ranger_fit_cm_matr[[1]]$byClass
+macro_f1_score <- function(base_ranger_fit_us_cm_matr){
+  con_matr <- base_ranger_fit_us_cm_matr[[1]]$byClass
   recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
   precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
   mac_f1 <- 2 * ((recall*precision) / (recall + precision))
   return(mac_f1)
 }
 
-macro_f1_base_ranger <- macro_f1_score(base_ranger_fit_cm_matr)
-macro_f1_base_ranger
-#poor result
+macro_f1_base_ranger_us <- macro_f1_score(base_ranger_fit_us_cm_matr)
+macro_f1_base_ranger_us
+
+set.seed(1, sample.kind="Rounding")
+base_ranger_fit_ds <- train(C_class ~ ., method = "ranger", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "down", savePredictions = "final"))
+
+base_ranger_fit_ds_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_ranger_fit_ds_cm_matr)){
+  positive.class <- levels(flare_train$C_class)[i]
+  base_ranger_fit_ds_cm_matr[[i]] <- confusionMatrix(base_ranger_fit_ds[["pred"]][["pred"]], base_ranger_fit_ds[["pred"]][["obs"]], positive = positive.class)
+}
+
+macro_f1_score <- function(base_ranger_fit_ds_cm_matr){
+  con_matr <- base_ranger_fit_ds_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+macro_f1_base_ranger_ds <- macro_f1_score(base_ranger_fit_ds_cm_matr)
+macro_f1_base_ranger_ds
+
+#repeat with other model types,
+
+#
+#sampling_method <- c("down","up")
+#control <- trainControl(method = "repeatedcv", number = 5, repeats = 10, sampling = "splmtd")
+#ranger_fits <- lapply(sampling_method, function(splmtd){
+#  print(splmtd)
+#  control <- trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = splmtd)
+# train(`C-class_flares_(common)` ~ ., method = "ranger", data = flare_train, trControl = control)
+#})
+#
+
+#attempt again with other model types in caret with oversampling, eg. boosted, svm
+#logitboost
+#svmLinear
+
+#LogitBoost
+set.seed(1, sample.kind="Rounding")
+base_boosted_fit_us <- train(C_class ~ ., method = "LogitBoost", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "up", savePredictions = "final"))
+
+base_boosted_fit_us_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_boosted_fit_us_cm_matr)){
+  positive.class <- levels(flare_train$C_class)[i]
+  base_boosted_fit_us_cm_matr[[i]] <- confusionMatrix(base_boosted_fit_us[["pred"]][["pred"]], base_boosted_fit_us[["pred"]][["obs"]], positive = positive.class)
+}
+
+macro_f1_score <- function(base_boosted_fit_us_cm_matr){
+  con_matr <- base_boosted_fit_us_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+macro_f1_base_boosted_us <- macro_f1_score(base_boosted_fit_us_cm_matr)
+macro_f1_base_boosted_us
+
+set.seed(1, sample.kind="Rounding")
+base_boosted_fit_ds <- train(C_class ~ ., method = "LogitBoost", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "down", savePredictions = "final"))
+
+base_boosted_fit_ds_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_boosted_fit_ds_cm_matr)){
+  positive.class <- levels(flare_train$C_class)[i]
+  base_boosted_fit_ds_cm_matr[[i]] <- confusionMatrix(base_boosted_fit_ds[["pred"]][["pred"]], base_boosted_fit_ds[["pred"]][["obs"]], positive = positive.class)
+}
+
+macro_f1_score <- function(base_boosted_fit_ds_cm_matr){
+  con_matr <- base_boosted_fit_ds_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+macro_f1_base_boosted_ds <- macro_f1_score(base_boosted_fit_ds_cm_matr)
+macro_f1_base_boosted_ds
+
+#svmLinear
+set.seed(1, sample.kind="Rounding")
+base_svm_fit_us <- train(C_class ~ ., method = "svmLinear", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "up", savePredictions = "final"))
+
+base_svm_fit_us_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_svm_fit_us_cm_matr)){
+  positive.class <- levels(flare_train$C_class)[i]
+  base_svm_fit_us_cm_matr[[i]] <- confusionMatrix(base_svm_fit_us[["pred"]][["pred"]], base_svm_fit_us[["pred"]][["obs"]], positive = positive.class)
+}
+
+macro_f1_score <- function(base_svm_fit_us_cm_matr){
+  con_matr <- base_svm_fit_us_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+macro_f1_base_svm_us <- macro_f1_score(base_svm_fit_us_cm_matr)
+macro_f1_base_svm_us
+
+
+set.seed(1, sample.kind="Rounding")
+base_svm_fit_ds <- train(C_class ~ ., method = "svmLinear", data = flare_train, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = "down", savePredictions = "final"))
+
+base_svm_fit_ds_cm_matr <- vector("list", length(levels(flare_train$C_class)))
+for (i in seq_along(base_svm_fit_ds_cm_matr)){
+  positive.class <- levels(flare_train$C_class)[i]
+  base_svm_fit_ds_cm_matr[[i]] <- confusionMatrix(base_svm_fit_ds[["pred"]][["pred"]], base_svm_fit_ds[["pred"]][["obs"]], positive = positive.class)
+}
+
+macro_f1_score <- function(base_svm_fit_ds_cm_matr){
+  con_matr <- base_svm_fit_ds_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+macro_f1_base_svm_ds <- macro_f1_score(base_svm_fit_ds_cm_matr)
+macro_f1_base_svm_ds
+
+#assemble results
+base_methods_macroF1 <- as.data.frame(rbind(macro_f1_base_ranger_us, macro_f1_base_ranger_ds, macro_f1_base_boosted_us, macro_f1_base_boosted_ds, macro_f1_base_svm_us, macro_f1_base_svm_ds)) %>%
+  mutate(model_name = c("ranger", "ranger", "LogitBoost", "LogitBoost", "svmLinear", " svmLinear"), sampling = c("up", "down", "up", "down", "up", "down")) %>%
+  select(model_name, sampling, V1)
+colnames(base_methods_macroF1) <- c("Model Name", "Sampling Method", "Macro F1 Score")
+base_methods_macroF1
+
+#Poor performance overall.
+
+#Looking at the precision & recall for any model with any sampling method across the different classes and recalling
+#the dominance of zero flare events in the EDA demonstrates the problem. Zero flare events appear to hinder 
+#classification for 1+ flare events to the point where different models or sampling methods may also prove 
+#ineffective.
+
+#With this in mind better results may be forthcoming if the imbalance is addressed outside of caret, which provides
+#additional options in terms of packages.
+#While it could also facilitate a different approach to evaluation metrics since the dataset would be balanced, it is
+#advantageous to continue using the current metric because it is highly likely the test set is imbalanced. 
+
+#ROSE Package
+#ROSE function generates a sample of synthetic data however only works for binary classification.
+#This can be addressed by subsetting for each minority class, producing a dataset of majority and one minority class
+#(binary), which can then be balanced using ROSE package, before joining the subsets together to produce a more 
+#balanced dataset. It should be noted at this time the low instances of flare events 4+ could make synthesising data
+#in this manner unreliable so they are still omitted.
+
+flr_trn_C_0 <- flare_train %>% filter(C_class == 0) %>% droplevels()
+flr_trn_C_1 <- flare_train %>% filter(C_class == 0 | C_class == 1) %>% droplevels()
+flr_trn_C_2 <- flare_train %>% filter(C_class == 0 | C_class == 2) %>% droplevels()
+flr_trn_C_3 <- flare_train %>% filter(C_class == 0 | C_class == 3) %>% droplevels()
+
+class_1_data <- ROSE(C_class ~ ., data = flr_trn_C_1, p =1, seed = 1)$data
+class_2_data <- ROSE(C_class ~ ., data = flr_trn_C_2, p =1, seed = 1)$data
+class_3_data <- ROSE(C_class ~ ., data = flr_trn_C_3, p =1, seed = 1)$data
+
+flare_train_balanced <- rbind(flr_trn_C_0, class_1_data, class_2_data, class_3_data)
+#a quick look at c class flare distribution
+c_class_dist_balanced <- flare_train_balanced %>% group_by(flare_train_balanced[10]) %>% summarize(n = n())
+print(c_class_dist_balanced)
+
+#dataset far more balanced.
+
+#repeat modelling initial modelling using caret
+
+set.seed(1, sample.kind="Rounding")
+ranger_fit_balanced <- train(C_class ~ ., method = "ranger", data = flare_train_balanced, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+#base_ranger_fit_balanced_cm <- confusionMatrix(base_ranger_fit_balanced[["pred"]][["pred"]], base_ranger_fit_balanced[["pred"]][["obs"]], mode = "prec_recall")
+
+#base_ranger_fit_balanced_cm_matr <- vector("list", length(levels(flare_train_balanced$C_class)))
+#for (i in seq_along(base_ranger_fit_balanced_cm_matr)){
+#  positive.class <- levels(flare_train_balanced$C_class)[i]
+#  base_ranger_fit_balanced_cm_matr[[i]] <- confusionMatrix(base_ranger_fit_balanced[["pred"]][["pred"]], base_ranger_fit_balanced[["pred"]][["obs"]], positive = positive.class)
+#}
+
+#macro_f1_score <- function(base_ranger_fit_balanced_cm_matr){
+#  con_matr <- base_ranger_fit_balanced_cm_matr[[1]]$byClass
+#  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+#  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+#  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+#  return(mac_f1)
+#}
+
+#macro_f1_base_ranger_balanced <- macro_f1_score(base_ranger_fit_balanced_cm_matr)
+#macro_f1_base_ranger_balanced
+
+#(rewrite evaluation metric functions to single user friendly function)
+
+model_fit_name <- ranger_fit_balanced
+modeltype_cm_matr <- vector("list", length(levels(flare_train_balanced$C_class)))
+macro_f1_score <- function(modeltype_cm_matr, model_fit_name){
+  for (i in seq_along(modeltype_cm_matr)){
+    positive.class <- levels(flare_train_balanced$C_class)[i]
+    modeltype_cm_matr[[i]] <- confusionMatrix(model_fit_name[["pred"]][["pred"]], model_fit_name[["pred"]][["obs"]], positive = positive.class)
+  }
+  con_matr <- modeltype_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_ranger_balanced <- macro_f1_score(modeltype_cm_matr, model_fit_name)
+macro_f1_ranger_balanced
+#This represents a vast improvement on the initial approach
+
+#As before, repeat with LogitBoost and svmLinear
+#LogitBoost
+set.seed(1, sample.kind="Rounding")
+LogitBoost_fit_balanced <- train(C_class ~ ., method = "LogitBoost", data = flare_train_balanced, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+
+model_fit_name <- LogitBoost_fit_balanced
+modeltype_cm_matr <- vector("list", length(levels(flare_train_balanced$C_class)))
+macro_f1_score <- function(modeltype_cm_matr, model_fit_name){
+  for (i in seq_along(modeltype_cm_matr)){
+    positive.class <- levels(flare_train_balanced$C_class)[i]
+    modeltype_cm_matr[[i]] <- confusionMatrix(model_fit_name[["pred"]][["pred"]], model_fit_name[["pred"]][["obs"]], positive = positive.class)
+  }
+  con_matr <- modeltype_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_LogitBoost_balanced <- macro_f1_score(modeltype_cm_matr, model_fit_name)
+macro_f1_LogitBoost_balanced
+
+#svmLinear
+set.seed(1, sample.kind="Rounding")
+svmLinear_fit_balanced <- train(C_class ~ ., method = "svmLinear", data = flare_train_balanced, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+
+model_fit_name <- svmLinear_fit_balanced
+modeltype_cm_matr <- vector("list", length(levels(flare_train_balanced$C_class)))
+macro_f1_score <- function(modeltype_cm_matr, model_fit_name){
+  for (i in seq_along(modeltype_cm_matr)){
+    positive.class <- levels(flare_train_balanced$C_class)[i]
+    modeltype_cm_matr[[i]] <- confusionMatrix(model_fit_name[["pred"]][["pred"]], model_fit_name[["pred"]][["obs"]], positive = positive.class)
+  }
+  con_matr <- modeltype_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_svmLinear_balanced <- macro_f1_score(modeltype_cm_matr, model_fit_name)
+macro_f1_svmLinear_balanced
+
+
+#Assemble results
+balanced_data_methods_macroF1 <- as.data.frame(rbind(macro_f1_ranger_balanced, macro_f1_LogitBoost_balanced, macro_f1_svmLinear_balanced)) %>%
+  mutate(model_name = c("ranger", "LogitBoost", "svmLinear")) %>%
+  select(model_name, V1)
+colnames(balanced_data_methods_macroF1) <- c("Model Name", "Macro F1 Score")
+balanced_data_methods_macroF1
+
+#Now look at tuning the existing models before looking for alternatives.
+
