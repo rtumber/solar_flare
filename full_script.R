@@ -7,6 +7,10 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 if(!require(caTools)) install.packages("caTools", repos = "http://cran.us.r-project.org")
 if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-project.org")
 if(!require(ROSE)) install.packages("ROSE", repos = "http://cran.us.r-project.org")
+if(!require(Rborist)) install.packages("Rborist", repos = "http://cran.us.r-project.org")
+install.packages('devtools', repos = "http://cran.us.r-project.org")
+devtools::install_url('https://github.com/catboost/catboost/releases/download/v0.26/catboost-R-Windows-0.26.tgz', INSTALL_opts = c("--no-multiarch", "--no-test-load"))
+if(!require(xgboost)) install.packages("xgboost", repos = "http://cran.us.r-project.org")
 
 
 library(data.table)
@@ -17,6 +21,9 @@ library(kernlab)
 library(caret)
 library(tidyverse)
 library(ROSE)
+library(Rborist)
+library(catboost)
+library(xgboost)
 
 #Download data description
 names_file <- tempfile()
@@ -664,5 +671,287 @@ balanced_data_methods_macroF1 <- as.data.frame(rbind(macro_f1_ranger_balanced, m
 colnames(balanced_data_methods_macroF1) <- c("Model Name", "Macro F1 Score")
 balanced_data_methods_macroF1
 
-#Now look at tuning the existing models before looking for alternatives.
+#Look at tuning the existing models before looking for alternatives.
+#Before this, split the training set to training and validation sets to help prevent overtraining. 70/30 split.
+set.seed(1, sample.kind="Rounding")
+train_split_index <- createDataPartition(y = flare_train_balanced$C_class, times = 1, p = 0.7, list = FALSE)
+flare_train_balanced_tuning <- flare_train_balanced[train_split_index,]
+flare_train_balanced_validation <- flare_train_balanced[-train_split_index,]
+
+#ranger fit
+ranger_fit_balanced
+
+ranger_tune_grid <- expand.grid(mtry = c(20, 21), splitrule = c("gini", "extratrees"), min.node.size = c(1,3,5,10))
+
+set.seed(1, sample.kind="Rounding")
+ranger_fit_balanced_tune <- train(C_class ~ ., method = "ranger", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = ranger_tune_grid)
+ranger_fit_balanced_tune
+#adjust grid
+ranger_tune_grid <- expand.grid(mtry = c(18, 19, 20, 21), splitrule = c("gini", "extratrees"), min.node.size = c(1,3))
+set.seed(1, sample.kind="Rounding")
+ranger_fit_balanced_tune <- train(C_class ~ ., method = "ranger", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = ranger_tune_grid)
+ranger_fit_balanced_tune
+ranger_fit_balanced_tune$bestTune
+ranger_fit_balanced_tune_pred <- predict(ranger_fit_balanced_tune, flare_train_balanced_validation)
+
+model_pred_name <- ranger_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_ranger_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_ranger_fit_balanced_tuned
+#Small improvement in f1 score over untuned model.
+
+#Repeat process for LogitBoost and svmLinear models
+
+#LogitBoost
+LogitBoost_fit_balanced
+
+LogitBoost_tune_grid <- expand.grid(nIter = c(21, 31, 41))
+set.seed(2, sample.kind="Rounding")
+LogitBoost_fit_balanced_tune <- train(C_class ~ ., method = "LogitBoost", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = LogitBoost_tune_grid)
+LogitBoost_fit_balanced_tune
+#adjust grid
+#LogitBoost_tune_grid <- expand.grid(nIter = c(25, 31, 35))
+#set.seed(2, sample.kind="Rounding")
+#LogitBoost_fit_balanced_tune <- train(C_class ~ ., method = "LogitBoost", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = LogitBoost_tune_grid)
+#LogitBoost_fit_balanced_tune
+#adjust grid
+LogitBoost_tune_grid <- expand.grid(nIter = c(27, 28, 29, 30, 31, 32))
+set.seed(2, sample.kind="Rounding")
+LogitBoost_fit_balanced_tune <- train(C_class ~ ., method = "LogitBoost", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = LogitBoost_tune_grid)
+LogitBoost_fit_balanced_tune
+LogitBoost_fit_balanced_tune$bestTune
+
+LogitBoost_fit_balanced_tune_pred <- predict(LogitBoost_fit_balanced_tune, flare_train_balanced_validation)
+
+model_pred_name <- LogitBoost_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_LogitBoost_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_LogitBoost_fit_balanced_tuned
+#Much less accurate than before data split into training and validation but possibly more robust tuning to new data.
+
+#svmLinear
+svmLinear_fit_balanced
+
+svmLinear_tune_grid <- expand.grid(C = c(1, 2, 3))
+set.seed(1, sample.kind="Rounding")
+svmLinear_fit_balanced_tune <- train(C_class ~ ., method = "svmLinear", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = svmLinear_tune_grid)
+svmLinear_fit_balanced_tune
+#Adjust grid
+#svmLinear_tune_grid <- expand.grid(C = c(3, 5, 7, 9))
+#set.seed(1, sample.kind="Rounding")
+#svmLinear_fit_balanced_tune <- train(C_class ~ ., method = "svmLinear", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = svmLinear_tune_grid)
+#svmLinear_fit_balanced_tune
+#Adjust grid
+svmLinear_tune_grid <- expand.grid(C = 7:15)
+set.seed(1, sample.kind="Rounding")
+svmLinear_fit_balanced_tune <- train(C_class ~ ., method = "svmLinear", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = svmLinear_tune_grid)
+svmLinear_fit_balanced_tune
+svmLinear_fit_balanced_tune$bestTune
+
+svmLinear_fit_balanced_tune_pred <- predict(svmLinear_fit_balanced_tune, flare_train_balanced_validation)
+
+model_pred_name <- svmLinear_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_svmLinear_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_svmLinear_fit_balanced_tuned
+#Improvement on untuned model.
+
+#Assemble results
+balanced_tuned_data_methods_macroF1 <- as.data.frame(rbind(macro_f1_ranger_fit_balanced_tuned, macro_f1_LogitBoost_fit_balanced_tuned, macro_f1_svmLinear_fit_balanced_tuned)) %>%
+  mutate(model_name = c("ranger", "LogitBoost", "svmLinear")) %>%
+  select(model_name, V1)
+colnames(balanced_tuned_data_methods_macroF1) <- c("Model Name", "Macro F1 Score")
+balanced_tuned_data_methods_macroF1
+
+#Improvement in model performance over untuned models in all except LogitBoost.
+#Would be useful to model other methods before writing off a whole method type
+
+#Rborist
+set.seed(1, sample.kind="Rounding")
+Rborist_fit_balanced <- train(C_class ~ ., method = "Rborist", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+Rborist_fit_balanced
+
+Rborist_tune_grid <- expand.grid(predFixed = 15:21, minNode = 1:5)
+set.seed(1, sample.kind="Rounding")
+Rborist_fit_balanced_tune <- train(C_class ~ ., method = "Rborist", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = Rborist_tune_grid)
+Rborist_fit_balanced_tune
+Rborist_fit_balanced_tune$bestTune
+
+Rborist_fit_balanced_tune_pred <- predict(Rborist_fit_balanced_tune, flare_train_balanced_validation)
+
+model_pred_name <- Rborist_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_Rborist_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_Rborist_fit_balanced_tuned
+#Improvement on tuned ranger
+
+
+#Boosted model performed worst so far, try more models to determine if reflective of any boosting for classification
+#on this dataset.
+
+#catboost =^.^=
+set.seed(1, sample.kind="Rounding")
+catboost_fit_balanced <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+catboost_fit_balanced
+
+#catboost_tune_grid <- expand.grid(depth = c(4, 6 ,8, 10), learning_rate = c(0.125, 0.13, 0.135, 0.14, 0.145), iterations = 100, l2_leaf_reg = c(0.000001, 0.001), rsm = 0.9, border_count = 255)
+#set.seed(1, sample.kind="Rounding")
+#catboost_fit_balanced_tuned <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = catboost_tune_grid)
+#catboost_fit_balanced_tuned
+#catboost_fit_balanced_tuned$bestTune
+
+catboost_tune_grid <- expand.grid(depth = 6, learning_rate = c(0.1353353, 0.136), iterations = 100, l2_leaf_reg = 0.001, rsm = 0.9, border_count = 255)
+set.seed(1, sample.kind="Rounding")
+catboost_fit_balanced_tuned <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = catboost_tune_grid)
+catboost_fit_balanced_tuned
+catboost_fit_balanced_tuned$bestTune
+
+catboost_fit_balanced_tune_pred <- predict(catboost_fit_balanced_tuned, flare_train_balanced_validation)
+
+model_pred_name <- catboost_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_catboost_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_catboost_fit_balanced_tuned
+
+#Significant improvement on Logitboost, comparable to tuned Rborist.
+
+#xgbTree
+#adjust trcontrol to allow parallel processing
+set.seed(1, sample.kind="Rounding")
+xgbTree_fit_balanced <- train(C_class ~ ., method = "xgbTree", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final", allowParallel = TRUE))
+xgbTree_fit_balanced
+
+#xgbTree_tune_grid <- expand.grid(eta = c(0.3, 0.4, 0.5), max_depth = 2:4, colsample_bytree = c(0.6, 0.7, 0.8, 0.9, 1), subsample = c(0.5, 0.75, 1), nrounds = c(100, 150, 200), gamma = 0, min_child_weight = 1)
+#set.seed(1, sample.kind="Rounding")
+#xgbTree_fit_balanced_tune <- train(C_class ~ ., method = "xgbTree", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final", allowParallel = TRUE), tuneGrid = xgbTree_tune_grid)
+#xgbTree_fit_balanced_tune
+
+xgbTree_tune_grid <- expand.grid(eta = c(0.3, 0.4, 0.5), max_depth = 3:9, colsample_bytree = 0.8, subsample = 1, nrounds = 150, gamma = 0, min_child_weight = 1)
+set.seed(1, sample.kind="Rounding")
+xgbTree_fit_balanced_tune <- train(C_class ~ ., method = "xgbTree", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final", allowParallel = TRUE), tuneGrid = xgbTree_tune_grid)
+xgbTree_fit_balanced_tune
+xgbTree_fit_balanced_tune$bestTune
+
+xgbTree_fit_balanced_tune_pred <- predict(xgbTree_fit_balanced_tune, flare_train_balanced_validation)
+
+model_pred_name <- xgbTree_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_xgbTree_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_xgbTree_fit_balanced_tuned
+#Outperforms all other models currently.
+
+#svmRadial
+set.seed(1, sample.kind="Rounding")
+svmRadial_fit_balanced <- train(C_class ~ ., method = "svmRadial", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+svmRadial_fit_balanced
+
+svmRad_sig <- svmRadial_fit_balanced$bestTune[["sigma"]]
+#svmRadial_tune_grid <- expand.grid(sigma = svmRad_sig, C = c(0.5, 0.75, 1, 1.25, 1.5))
+#set.seed(1, sample.kind="Rounding")
+#svmRadial_fit_balanced_tune <- train(C_class ~ ., method = "svmRadial", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final", allowParallel = TRUE), tuneGrid = svmRadial_tune_grid)
+#svmRadial_fit_balanced_tune
+
+svmRadial_tune_grid <- expand.grid(sigma = svmRad_sig, C = c(1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0))
+set.seed(1, sample.kind="Rounding")
+svmRadial_fit_balanced_tune <- train(C_class ~ ., method = "svmRadial", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final", allowParallel = TRUE), tuneGrid = svmRadial_tune_grid)
+svmRadial_fit_balanced_tune
+
+#High cost increases reported accuracy but can lead to overtraining. Reported accuracy improvements get smaller with
+#increased C. Limit to C = 1.2, define parameter and retrain.
+svmRadial_tune_grid <- expand.grid(sigma = svmRad_sig, C = 1.2)
+set.seed(1, sample.kind="Rounding")
+svmRadial_fit_balanced_tune <- train(C_class ~ ., method = "svmRadial", data = flare_train_balanced_tuning, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final", allowParallel = TRUE), tuneGrid = svmRadial_tune_grid)
+svmRadial_fit_balanced_tune
+
+svmRadial_fit_balanced_tune_pred <- predict(svmRadial_fit_balanced_tune, flare_train_balanced_validation)
+
+model_pred_name <- svmRadial_fit_balanced_tune_pred
+modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
+pred_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_train_balanced_validation$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_train_balanced_validation$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+macro_f1_svmRadial_fit_balanced_tuned <- pred_macro_f1_score(modelpred_cm_matr, model_pred_name)
+macro_f1_svmRadial_fit_balanced_tuned
+#more accurate than svmLinear
+
+#Assemble results
+balanced_tuned_data_methods_macroF1_upd <- rbind(balanced_tuned_data_methods_macroF1, macro_f1_Rborist_fit_balanced_tuned, macro_f1_catboost_fit_balanced_tuned, macro_f1_xgbTree_fit_balanced_tuned, macro_f1_svmRadial_fit_balanced_tuned) %>%
+  select("Macro F1 Score")
+rownames(balanced_tuned_data_methods_macroF1_upd) <- c("ranger", "LogitBoost", "svmLinear", "Rborist", "catboost", "xgbTree", "svmRadial")
+balanced_tuned_data_methods_macroF1_upd <- balanced_tuned_data_methods_macroF1_upd %>% arrange(desc(`Macro F1 Score`))
+balanced_tuned_data_methods_macroF1_upd
 
