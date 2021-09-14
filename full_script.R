@@ -3,7 +3,6 @@ if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(DataExplorer)) install.packages("DataExplorer", repos = "http://cran.us.r-project.org")
 if(!require(gridExtra)) install.packages("gridExtra", repos = "http://cran.us.r-project.org")
-if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(caTools)) install.packages("caTools", repos = "http://cran.us.r-project.org")
 if(!require(kernlab)) install.packages("kernlab", repos = "http://cran.us.r-project.org")
 if(!require(ROSE)) install.packages("ROSE", repos = "http://cran.us.r-project.org")
@@ -11,19 +10,31 @@ if(!require(Rborist)) install.packages("Rborist", repos = "http://cran.us.r-proj
 install.packages('devtools', repos = "http://cran.us.r-project.org")
 devtools::install_url('https://github.com/catboost/catboost/releases/download/v0.26/catboost-R-Windows-0.26.tgz', INSTALL_opts = c("--no-multiarch", "--no-test-load"))
 if(!require(xgboost)) install.packages("xgboost", repos = "http://cran.us.r-project.org")
-
+if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+if(!require(neuralnet)) install.packages("neuralnet", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(RSNNS)) install.packages("RSNNS", repos = "http://cran.us.r-project.org")
+if(!require(earth)) install.packages("earth", repos = "http://cran.us.r-project.org")
+if(!require(MASS)) install.packages("MASS", repos = "http://cran.us.r-project.org")
 
 library(data.table)
 library(DataExplorer)
 library(gridExtra)
 library(caTools)
 library(kernlab)
-library(caret)
-library(tidyverse)
 library(ROSE)
 library(Rborist)
 library(catboost)
 library(xgboost)
+library(nnet)
+library(randomForest)
+library(neuralnet)
+library(RSNNS)
+library(caret)
+library(earth)
+library(MASS)
+library(tidyverse)
 
 #Download data description
 names_file <- tempfile()
@@ -92,7 +103,6 @@ flare_data$`C-class_flares_(common)` <- as.numeric(levels(flare_data$`C-class_fl
 flare_data$`M-class_flares_(moderate)` <- as.numeric(levels(flare_data$`M-class_flares_(moderate)`)[flare_data$`M-class_flares_(moderate)`])
 flare_data$`X-class_flares_(severe)` <- as.numeric(levels(flare_data$`X-class_flares_(severe)`)[flare_data$`X-class_flares_(severe)`])
 
-
 #Examine data
 introduce(flare_data)
 str(flare_data)
@@ -104,6 +114,7 @@ plot_str(flare_data)
 c_class_dist <- flare_data %>% group_by(flare_data[11]) %>% summarize(n = n())
 m_class_dist <- flare_data %>% group_by(flare_data[12]) %>% summarize(n = n())
 x_class_dist <- flare_data %>% group_by(flare_data[13]) %>% summarize(n = n())
+
 
 ggplot() +
   geom_bar(aes(c_class_dist$`C-class_flares_(common)`, c_class_dist$n), stat = "identity") +
@@ -272,7 +283,7 @@ grid.arrange(filt_class_dist_grids[[1]])
 #10 Area of the largest spot
 #Always <= 5
 
-#Can these relationships be refined if we each variable against each other and flare count
+#Can these relationships be refined if we plot each variable against each other and flare count
 feature_ind_1 <- seq(1, 10, 1)
 feature_ind_2 <- seq(1, 10, 1)
 
@@ -350,8 +361,10 @@ comb_variable_grid[[9]]
 comb_variable_grid[[10]]
 #There appear to be very few differences in the distributions in the above plots and all of these could easily be
 #explained by the lower sample size.
+#Additionally, the same could be said of the distribution of the feature data with respect to c-class events. 
 
-#Returning to the earlier observations, we should construct a model using the following variables.
+#To investigate the above we should return to the earlier observations, we should construct a model using the 
+#following variables.
 #Code for class (modified Zurich class)
 #Code for largest spot size
 #Code for spot distribution
@@ -363,8 +376,17 @@ comb_variable_grid[[10]]
 
 #Potentially Historically-complex variable, though the fairly even split indicate it is of low relevance 
 
-#Need to return number of flares to categorical/discrete for predictions?
+#Need to return number of flares to categorical/discrete for predictions
 flare_data$`C-class_flares_(common)` <- as.factor(flare_data$`C-class_flares_(common)`)
+
+
+#Housekeeping
+rm(y_lim_calc)
+rm(class_no)
+rm(feature_ind)
+rm(feature_ind_1)
+rm(feature_ind_2)
+rm(pred_ind)
 
 #straightforward split of data to training and testing set will be challenging due to imbalanced set.
 #Need to create stratified split.
@@ -446,7 +468,7 @@ macro_f1_base_ranger_ds
 #control <- trainControl(method = "repeatedcv", number = 5, repeats = 10, sampling = "splmtd")
 #ranger_fits <- lapply(sampling_method, function(splmtd){
 #  print(splmtd)
-#  control <- trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = splmtd)
+#control <- trainControl(method = "repeatedcv", number = 10, repeats = 5, sampling = splmtd)
 # train(`C-class_flares_(common)` ~ ., method = "ranger", data = flare_train, trControl = control)
 #})
 #
@@ -572,6 +594,8 @@ flr_trn_C_3 <- flare_train %>% filter(C_class == 0 | C_class == 3) %>% droplevel
 class_1_data <- ROSE(C_class ~ ., data = flr_trn_C_1, p =1, seed = 1)$data
 class_2_data <- ROSE(C_class ~ ., data = flr_trn_C_2, p =1, seed = 1)$data
 class_3_data <- ROSE(C_class ~ ., data = flr_trn_C_3, p =1, seed = 1)$data
+
+#examine minority class as formula, p closer to .75 or .5 (default), p = 1 may be too far, for recombination of just the three minor class data frames.
 
 flare_train_balanced <- rbind(flr_trn_C_0, class_1_data, class_2_data, class_3_data)
 #a quick look at c class flare distribution
@@ -840,17 +864,17 @@ catboost_fit_balanced
 
 #catboost_tune_grid <- expand.grid(depth = c(4, 6 ,8, 10), learning_rate = c(0.125, 0.13, 0.135, 0.14, 0.145), iterations = 100, l2_leaf_reg = c(0.000001, 0.001), rsm = 0.9, border_count = 255)
 #set.seed(1, sample.kind="Rounding")
-#catboost_fit_balanced_tuned <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = catboost_tune_grid)
-#catboost_fit_balanced_tuned
-#catboost_fit_balanced_tuned$bestTune
+#catboost_fit_balanced_tune <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = catboost_tune_grid)
+#catboost_fit_balanced_tune
+#catboost_fit_balanced_tune$bestTune
 
 catboost_tune_grid <- expand.grid(depth = 6, learning_rate = c(0.1353353, 0.136), iterations = 100, l2_leaf_reg = 0.001, rsm = 0.9, border_count = 255)
 set.seed(1, sample.kind="Rounding")
-catboost_fit_balanced_tuned <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = catboost_tune_grid)
-catboost_fit_balanced_tuned
-catboost_fit_balanced_tuned$bestTune
+catboost_fit_balanced_tune <- train(y = flare_train_balanced_tuning$C_class, x = flare_train_balanced_tuning[,-10], method = catboost.caret, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"), tuneGrid = catboost_tune_grid)
+catboost_fit_balanced_tune
+catboost_fit_balanced_tune$bestTune
 
-catboost_fit_balanced_tune_pred <- predict(catboost_fit_balanced_tuned, flare_train_balanced_validation)
+catboost_fit_balanced_tune_pred <- predict(catboost_fit_balanced_tune, flare_train_balanced_validation)
 
 model_pred_name <- catboost_fit_balanced_tune_pred
 modelpred_cm_matr <- vector("list", length(levels(flare_train_balanced_validation$C_class)))
@@ -954,4 +978,769 @@ balanced_tuned_data_methods_macroF1_upd <- rbind(balanced_tuned_data_methods_mac
 rownames(balanced_tuned_data_methods_macroF1_upd) <- c("ranger", "LogitBoost", "svmLinear", "Rborist", "catboost", "xgbTree", "svmRadial")
 balanced_tuned_data_methods_macroF1_upd <- balanced_tuned_data_methods_macroF1_upd %>% arrange(desc(`Macro F1 Score`))
 balanced_tuned_data_methods_macroF1_upd
+
+#Make predictions on test set for first five models and assess performance on unbalanced data.
+model_names <- paste(rownames(balanced_tuned_data_methods_macroF1_upd)[1:5], "_fit_balanced_tune", sep = "")
+model_predictions <- lapply(model_names, function(model){
+  predict(get(model), flare_test)
+  })
+
+pred_test_macro_f1_score <- function(modelpred_cm_matr, model_pred_name){
+  for (i in seq_along(modelpred_cm_matr)){
+    positive.class <- levels(flare_test$C_class)[i]
+    modelpred_cm_matr[[i]] <- confusionMatrix(model_pred_name, flare_test$C_class, positive = positive.class)
+  }
+  con_matr <- modelpred_cm_matr[[1]]$byClass
+  recall <- sum(con_matr[,"Recall"]/nrow(con_matr))
+  precision <- sum(con_matr[,"Precision"]/nrow(con_matr))
+  mac_f1 <- 2 * ((recall*precision) / (recall + precision))
+  return(mac_f1)
+}
+
+model_predictions_ind <- 1:5
+macro_f1_test_scores <- lapply(model_predictions_ind, function(ind){
+  model_pred_name <- model_predictions[[ind]]
+  modelpred_cm_matr <- vector("list", length(levels(flare_test$C_class)))
+  pred_test_macro_f1_score(modelpred_cm_matr, model_pred_name)
+})
+
+macro_f1_test_scores <- as.data.table(macro_f1_test_scores)
+colnames(macro_f1_test_scores) <- rownames(balanced_tuned_data_methods_macroF1_upd)[1:5]
+macro_f1_test_scores <- t(macro_f1_test_scores)
+colnames(macro_f1_test_scores) <- "Macro F1 score"
+macro_f1_test_scores <- macro_f1_test_scores %>% as.data.frame() %>% arrange(desc(`Macro F1 score`))
+macro_f1_test_scores
+
+#Overall very poor performance, comparable to that from initial imbalanced training set prior to use of ROSE package.
+#This suggests one or more of the following.
+
+#Insufficient data in the imbalanced training set to accurately synthesise new data points
+#weak relationships between dataset features and the number of C class solar flares
+#Overtrained models
+#A categorisation exercise is not the correct approach
+
+
+#Examination of synthesised data
+#Data compared to original dataset, filtered to isolated synthesised factor.
+class_1_flare_train <- flare_train %>% filter(C_class == 1)
+class_1_data
+
+train_feature_ind <- 1:9
+class_1_comp_plots <- lapply(train_feature_ind, function(f_ind){
+    class_1_flare_train$C_class <- as.numeric(levels(class_1_flare_train$C_class)[class_1_flare_train$C_class])
+    flare_train_feat <- class_1_flare_train %>%
+      mutate("feature_name" = class_1_flare_train[,f_ind], "flare_count" = 1) %>%
+      group_by(feature_name, flare_count) %>%
+      summarize(n = n())
+    class_1_data$C_class <- as.numeric(levels(class_1_data$C_class)[class_1_data$C_class])
+    class_1_data_feat <- class_1_data %>%
+      mutate("feature_name" = class_1_data[,f_ind], "flare_count" = 1) %>%
+      group_by(feature_name, flare_count) %>%
+      summarize(n = n())
+    ggplot() +
+    geom_histogram(data = flare_train_feat, aes(feature_name, n), fill = "red", stat = "identity") +
+    geom_histogram(data = class_1_data_feat, aes(feature_name, n), fill = "blue", alpha = 0.5, stat = "identity") +
+    xlab(colnames(class_1_flare_train[f_ind]))
+})
+
+#arrange by feature (1-9)
+class_1_comp_feature_grids <- lapply(train_feature_ind, function(f_ind){
+  grid.arrange(grobs = class_1_comp_plots[f_ind], ncol = 3)
+})
+grid.arrange(class_1_comp_feature_grids[[1]],class_1_comp_feature_grids[[2]],class_1_comp_feature_grids[[3]],class_1_comp_feature_grids[[4]],class_1_comp_feature_grids[[5]],class_1_comp_feature_grids[[6]],class_1_comp_feature_grids[[7]],class_1_comp_feature_grids[[8]],class_1_comp_feature_grids[[9]])
+
+
+#For 1 c-class flare event proportions have remained consistent between actual and synthesised data. There is no 
+#reason to assume this would not be the case for other numbers of flare events and were we to look at the 
+#distributions of the features of the synthesised data against each other in the same fashion as was performed in 
+#the EDA it seems quite unlikely this would be the source of the inaccuracy.
+#All this being the case, can we reasonably discount the idea that there was insufficient data from which to 
+#artificially create new data points with which to balance the dataset, given the clear differences in accuracy 
+#between training/validation and testing sets?
+
+#This would be possible if there are only weak/missing relationships between the variables, something not really
+#observed in EDA, or in the event of overtraining, something that would have become apparent in testing the tuned
+#model performance.
+
+#If indeed the above are all sound judgements, the remaining factor in the poor performance of the model is the
+#approach taken in the first place.
+
+#Before getting too involved, quick lm test on unbalanced training set to determine if reasonable to continue.
+
+#dummy variables on full dataset before train/test split
+#duplicate full data for new train/test to avoid conflict with categorisation
+
+flare_data_reg <- flare_data
+flare_data_reg <- rename(flare_data_reg, M_class = `M-class_flares_(moderate)`)
+flare_data_reg <- rename(flare_data_reg, X_class = `X-class_flares_(severe)`)
+flare_data_reg$C_class <- as.numeric(levels(flare_data_reg$C_class)[flare_data_reg$C_class])
+
+str(flare_data_reg)
+
+#multiple targets variables, need to ensure even split
+flare_data_comb_var <- data.frame(c(flare_data_reg[11:13])) %>% mutate(comb_var = paste(C_class, M_class, X_class))
+
+#split set
+set.seed(1, sample.kind="Rounding")
+train_index_reg <- createDataPartition(y = flare_data_comb_var$comb_var, times = 1, p = 0.7, list = FALSE)
+
+flare_train_reg <- flare_data_reg[train_index_reg,]
+flare_test_reg <- flare_data_reg[-train_index_reg,]
+
+
+contrasts(flare_train_reg$Mod_Zur_Class_Code) = contr.treatment(6)
+contrasts(flare_train_reg$Lrgst_spot_size_code) = contr.treatment(6)
+contrasts(flare_train_reg$Spot_dist_code) = contr.treatment(4)
+contrasts(flare_train_reg$Activity) = contr.treatment(2)
+contrasts(flare_train_reg$Evolution) = contr.treatment(3)
+contrasts(flare_train_reg$Flare_activity_code) = contr.treatment(3)
+contrasts(flare_train_reg$Historically_complex) = contr.treatment(2)
+contrasts(flare_train_reg$Recent_historically_complex) = contr.treatment(2)
+contrasts(flare_train_reg$Area) = contr.treatment(2)
+flare_train_reg$Lrgst_spot_area <- as.numeric(levels(flare_train_reg$Lrgst_spot_area)[flare_train_reg$Lrgst_spot_area])
+
+contrasts(flare_test_reg$Mod_Zur_Class_Code) = contr.treatment(6)
+contrasts(flare_test_reg$Lrgst_spot_size_code) = contr.treatment(6)
+contrasts(flare_test_reg$Spot_dist_code) = contr.treatment(4)
+contrasts(flare_test_reg$Activity) = contr.treatment(2)
+contrasts(flare_test_reg$Evolution) = contr.treatment(3)
+contrasts(flare_test_reg$Flare_activity_code) = contr.treatment(3)
+contrasts(flare_test_reg$Historically_complex) = contr.treatment(2)
+contrasts(flare_test_reg$Recent_historically_complex) = contr.treatment(2)
+contrasts(flare_test_reg$Area) = contr.treatment(2)
+flare_test_reg$Lrgst_spot_area <- as.numeric(levels(flare_test_reg$Lrgst_spot_area)[flare_test_reg$Lrgst_spot_area])
+
+lm_fit_tst <- train(C_class ~ ., method = "lm", data = flare_train_reg, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+warnings()
+summary(lm_fit_tst)
+
+#For a very basic linear regression, C_class against everything, we are not expecting amazing results as it is 
+#including M & X class flares as predictors but are instead looking for any indications from the summary that there
+#is reason to continue a regression approach. Pr(>|t|) values indicate there may be a benefit in pursuing this.
+
+#Recursive Feature Elimination
+#Given the imbalance in the data and the very low proportion of non-zero flare events for M & X class types we will 
+#omit these at this stage as before. Additionally, there is no variation in Largest Spot area value across both sets
+#so this will also be omitted.
+flare_train_reg_RFE <- flare_train_reg %>% select(-Lrgst_spot_area, -M_class, -X_class)
+set.seed(1, sample.kind="Rounding")
+rfe_control <- rfeControl(functions = rfFuncs, method = "repeatedcv", number = 10, repeats = 5)
+reg_RFE_res <- rfe(flare_train_reg_RFE[,1:9], flare_train_reg_RFE$C_class, sizes = c(2:9), rfeControl = rfe_control)
+predictors(reg_RFE_res)
+
+#Using RMSE as an evaluation metric best performance was using below five predictors
+reg_RFE_res[["optVariables"]]
+#Though optimised, still very bad RMSE value. Is this down to the imbalance in the dataset and/or the model/method 
+#used?
+#Next steps should be to examine the performance of those four variables in C_class prediction in different models
+#and if any show signs of success, tune models. Following this verify the RFE findings above using predictors 5 & 6 
+#and compare performance.
+
+#Following this, balance dataset as before and assess performance using top models for unbalanced data.
+
+#RMSE will be used as an evaluation metric across all the regression models. Some models may overlap with those 
+#already used for classification   
+#Split flare_train_reg into train and validation sets.
+set.seed(1, sample.kind="Rounding")
+train_reg_split_index <- createDataPartition(y = flare_train_reg$C_class, times = 1, p = 0.7, list = FALSE)
+flare_train_reg_trn <- flare_train_reg[train_reg_split_index,]
+flare_train_reg_val <- flare_train_reg[-train_reg_split_index,]
+
+#models
+#ranger
+#xgbtree
+#pcaNNEt
+#glm
+model_types <- c("ranger", "xgbTree", "pcaNNet", "glm")
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_fits_2var <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Mod_Zur_Class_Code + Historically_complex, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+#RMSE gathering (minimum RMSE retained from models that record more than one since this is a comparative test and 
+#does not represent the final model)
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_fits_2var[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_rmses_2var <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_rmses_2var) <- c("RMSE", "model_name")
+
+flare_train_reg_rmses_2var
+
+#Some improvement in RMSE for all models, add third variable
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_fits_3var <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_fits_3var[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_rmses_3var <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_rmses_3var) <- c("RMSE", "model_name")
+
+flare_train_reg_rmses_3var
+
+#Again improvement in RMSE. Add fourth variable
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_fits_4var <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code + Area, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_fits_4var[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_rmses_4var <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_rmses_4var) <- c("RMSE", "model_name")
+
+flare_train_reg_rmses_4var
+
+#RMSE increases, replace fourth variable with fifth.
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_fits_4var_rev <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code + Evolution, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_fits_4var_rev[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_rmses_4var_rev <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_rmses_4var_rev) <- c("RMSE", "model_name")
+
+flare_train_reg_rmses_4var_rev
+
+#Another increase in RMSE, continue for now with just the three variables, Mod_Zur_Class_Code, Historically_complex, Lrgst_spot_size_code
+#Ranger & pcaNNet most successful.
+#Tune models
+#Ranger
+flare_train_reg_fits_3var[[1]][["results"]]
+ranger_reg_tune_grid <- expand.grid(mtry = c(1:5), splitrule = c("variance", "extratrees"), min.node.size = 5)
+set.seed(1, sample.kind="Rounding")
+ranger_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = "ranger", data = flare_train_reg_trn, trControl = control, tuneGrid = ranger_reg_tune_grid)
+ranger_fit_reg_tune
+ranger_fit_reg_tune$bestTune
+ranger_fit_reg_tune_pred <- predict(ranger_fit_reg_tune, flare_train_reg_val)
+ranger_fit_reg_tune_RMSE <- RMSE(ranger_fit_reg_tune_pred, flare_train_reg_val$C_class)
+ranger_fit_reg_tune_RMSE
+#Again, poor performance, repeat for pcaNNEt
+flare_train_reg_fits_3var[[3]][["results"]]
+
+#pcaNNet
+pcaNNet_reg_tune_grid <- expand.grid(size = c(1:3), decay = c(5e-3, 1e-4, 5e-4, 1e-5))
+set.seed(1, sample.kind="Rounding")
+pcaNNet_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = "nnet", data = flare_train_reg_trn, maxit = 1000, trControl = control, tuneGrid = pcaNNet_reg_tune_grid)
+pcaNNet_fit_reg_tune
+pcaNNet_fit_reg_tune$bestTune
+pcaNNet_fit_reg_tune_pred <- predict(pcaNNet_fit_reg_tune, flare_train_reg_val)
+pcaNNet_fit_reg_tune_RMSE <- RMSE(pcaNNet_fit_reg_tune_pred, flare_train_reg_val$C_class)
+pcaNNet_fit_reg_tune_RMSE
+#Similarly poor performance.
+
+#Are we missing any settings in caret. Refer documentation.
+#Near Zero variance
+near_zero_var <- nearZeroVar(flare_data_reg, saveMetrics = TRUE)
+#As already identified, Largest Spot Area has no variance and has already been excluded from variables for 
+#prediction. M & X class event prediction has also been excluded due to a shortage of data. Variables with near zero 
+#variance have been retained as they may still have a use.
+#Centering & Scaling
+#center and scale will ignore any dummy variables
+
+
+#Despite poor performance, still best performing so look at implementing other random forest/neural net models
+#Rborist
+#rf
+#neuralnet
+#mlpML
+
+#Rborist
+set.seed(1, sample.kind="Rounding")
+Rborist_fit_reg <- train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = "Rborist", data = flare_train_reg_trn, trControl = control)
+Rborist_fit_reg
+Rborist_fit_reg$bestTune
+Rborist_fit_reg_pred <- predict(Rborist_fit_reg, flare_train_reg_val)
+Rborist_fit_reg_RMSE <- RMSE(Rborist_fit_reg_pred, flare_train_reg_val$C_class)
+Rborist_fit_reg_RMSE
+
+#rf
+set.seed(1, sample.kind="Rounding")
+rf_fit_reg <- train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = "rf", data = flare_train_reg_trn, trControl = control)
+rf_fit_reg
+rf_fit_reg$bestTune
+rf_fit_reg_pred <- predict(rf_fit_reg, flare_train_reg_val)
+rf_fit_reg_RMSE <- RMSE(rf_fit_reg_pred, flare_train_reg_val$C_class)
+rf_fit_reg_RMSE
+
+#neuralnet
+set.seed(1, sample.kind="Rounding")
+neuralnet_fit_reg <- train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = "neuralnet", data = flare_train_reg_trn, trControl = control)
+neuralnet_fit_reg
+neuralnet_fit_reg$bestTune
+neuralnet_fit_reg_pred <- predict(neuralnet_fit_reg, flare_train_reg_val)
+neuralnet_fit_reg_RMSE <- RMSE(neuralnet_fit_reg_pred, flare_train_reg_val$C_class)
+neuralnet_fit_reg_RMSE
+
+#mlpML
+set.seed(1, sample.kind="Rounding")
+mlpML_fit_reg <- train(C_class ~ Mod_Zur_Class_Code + Historically_complex + Lrgst_spot_size_code, method = "mlpML", data = flare_train_reg_trn, trControl = control)
+mlpML_fit_reg
+mlpML_fit_reg$bestTune
+mlpML_fit_reg_pred <- predict(mlpML_fit_reg, flare_train_reg_val)
+mlpML_fit_reg_RMSE <- RMSE(mlpML_fit_reg_pred, flare_train_reg_val$C_class)
+mlpML_fit_reg_RMSE
+
+
+#Assemble fit results
+reg_fit_RMSEs <- as.data.table(rbind(min(ranger_fit_reg_tune[["results"]][["RMSE"]]), min(pcaNNet_fit_reg_tune[["results"]][["RMSE"]]), min(Rborist_fit_reg[["results"]][["RMSE"]]), min(rf_fit_reg[["results"]][["RMSE"]]), min(neuralnet_fit_reg[["results"]][["RMSE"]]), min(mlpML_fit_reg[["results"]][["RMSE"]]))) %>% mutate(model_name = c("ranger tuned", "pcaNNet tuned", "Rborist", "rf", "neuralnet", "mlpML")) %>% select(model_name, V1)
+colnames(reg_fit_RMSEs) <- c("model_name", "RMSE")
+reg_fit_RMSEs <- rbind(flare_train_reg_rmses_3var, reg_fit_RMSEs) %>% select(model_name, RMSE) %>% arrange(RMSE)
+reg_fit_RMSEs
+
+#Looking at these results still suggests a neural net or random forest model could be the way forward.
+
+#Checking once again the basic linear regression, we see the most significant features differ from those picked out
+#in the recursive feature elimination.
+set.seed(1, sample.kind="Rounding")
+lm_fit_tst2 <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Spot_dist_code + Activity + Evolution + Flare_activity_code + Historically_complex + Recent_historically_complex + Area + Lrgst_spot_area, method = "lm", data = flare_train_reg, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 5, savePredictions = "final"))
+summary(lm_fit_tst2)
+#Mod_Zur_Class_code, Lrgst_spot_size_code, Activity, Area
+#Does this indicate we should look once again at feature selection for fitting the data.
+#The consistently poor results suggests this ought to be the next place to look
+
+#1 Fit random forest model on the full set of variables and look at the variable importance 
+set.seed(1, sample.kind="Rounding")
+random_forest_vi_fit <- randomForest(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Spot_dist_code + Activity + Evolution + Flare_activity_code + Historically_complex + Recent_historically_complex + Area + Lrgst_spot_area, data = flare_train_reg, mtry = c(3:6), importance = TRUE, proximity = TRUE)
+varImp(random_forest_vi_fit)
+varImpPlot(random_forest_vi_fit)
+#The variables, in decreasing order of significance, are identified as Historically_complex, Mod_Zur_Class_Code, 
+#Lrgst_spot_size_code, Area, Evolution & Spot_dist_code. #The remaining variables are determined to be of no 
+#significance.
+#Once again this is quite some way removed from the recursive feature elimination. 
+
+#2 Fit earth model and look at estimated variable importance.
+set.seed(1, sample.kind="Rounding")
+earth_vi_fit <- earth(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Spot_dist_code + Activity + Evolution + Flare_activity_code + Historically_complex + Recent_historically_complex + Area + Lrgst_spot_area, data = flare_train_reg)
+evimp(earth_vi_fit)
+#Variables determined to be important this time relate to the dummy variable for the variable in question.
+#Mod_Zur_Class_Code, Activity, Lrgst_spot_size_code, Spot_dist_code, Area
+#Here there is some commonality with the features from the random forest variable importance only loosely
+
+#Step-wise Regression
+set.seed(1, sample.kind="Rounding")
+step_reg_basic <- lm(C_class ~ 1, data = flare_train_reg)
+step_reg_full <- lm(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Spot_dist_code + Activity + Evolution + Flare_activity_code + Historically_complex + Recent_historically_complex + Area + Lrgst_spot_area, data = flare_train_reg)
+step_reg_stepped <- stepAIC(step_reg_basic, scope = list(lower = step_reg_basic, upper = step_reg_full), direction = "both", trace = 0, steps = 1000)
+step_variables <- as.data.table(step_reg_stepped[["coefficients"]], keep.rownames = TRUE)
+colnames(step_variables) <- c("Coefficient", "Value")
+step_variables <- step_variables[Coefficient != "(Intercept)"] %>% arrange(desc(Value))
+step_variables
+#Variables identified this time are Mod_Zur_Class_Code, Lrgst_spot_size_code, Activity & Area
+
+#There are some variables common to all, however it would be unwise to ignore the differences.
+#Model the variables identified above with the six better performing methods used previously, ranger, pcaNNEt, 
+#Rborist, rf, neuralnet, mlpML, then tune.
+
+#varimp variables
+model_types <- c("ranger", "Rborist", "rf", "pcaNNet", "neuralnet", "mlpML")
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_varimp_fits <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_varimp_fits[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_varimp_fit_rmses <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_varimp_fit_rmses) <- c("RMSE", "model_name")
+
+flare_train_reg_varimp_fit_rmses
+
+#earth variables
+model_types <- c("ranger", "Rborist", "rf", "pcaNNet", "neuralnet", "mlpML")
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_earth_fits <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_earth_fits[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_earth_fit_rmses <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_earth_fit_rmses) <- c("RMSE", "model_name")
+
+flare_train_reg_earth_fit_rmses
+
+#stepwise reg variables
+model_types <- c("ranger", "Rborist", "rf", "pcaNNet", "neuralnet", "mlpML")
+set.seed(1, sample.kind="Rounding")
+flare_train_reg_step_fits <- lapply(model_types, function(model){
+  print(model)
+  train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = model, data = flare_train_reg_trn, trControl = control)
+})
+
+n_models <- seq(1:length(model_types))
+model_rmses <- sapply(n_models, function(m_number){
+  min(flare_train_reg_step_fits[[m_number]][["results"]][["RMSE"]])
+})
+
+flare_train_reg_step_fit_rmses <- as.data.frame(model_rmses) %>%
+  mutate(model_name = model_types)
+colnames(flare_train_reg_step_fit_rmses) <- c("RMSE", "model_name")
+
+flare_train_reg_step_fit_rmses
+
+#compare all
+flare_train_reg_varimp_fit_rmses
+flare_train_reg_earth_fit_rmses
+flare_train_reg_step_fit_rmses
+#Variable performance to tuning
+#Performance-wise, there are no major gains observed, however, based on prior tuned vs untuned performance, it looks
+#like improvements could be made to all models by tuning the hyperparameters.
+
+#varimp
+flare_train_reg_varimp_fit_rmses
+  #ranger
+flare_train_reg_varimp_fits[[1]][["results"]]
+ranger_reg_tune_grid <- expand.grid(mtry = c(1:5), splitrule = c("variance", "extratrees"), min.node.size = c(2:8))
+set.seed(1, sample.kind="Rounding")
+ranger_varimp_fit_reg_tune <- train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = "ranger", data = flare_train_reg_trn, trControl = control, tuneGrid = ranger_reg_tune_grid)
+ranger_varimp_fit_reg_tune
+ranger_varimp_fit_reg_tune$bestTune
+ranger_varimp_fit_reg_tune_pred <- predict(ranger_varimp_fit_reg_tune, flare_train_reg_val)
+ranger_varimp_fit_reg_tune_RMSE <- RMSE(ranger_varimp_fit_reg_tune_pred, flare_train_reg_val$C_class)
+ranger_varimp_fit_reg_tune_RMSE
+
+  #Rborist
+flare_train_reg_varimp_fits[[2]][["results"]]
+Rborist_reg_tune_grid <- expand.grid(predFixed = 2, minNode = c(2:10))
+set.seed(1, sample.kind="Rounding")
+Rborist_varimp_fit_reg_tune <- train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = "Rborist", data = flare_train_reg_trn, trControl = control, tuneGrid = Rborist_reg_tune_grid)
+Rborist_varimp_fit_reg_tune
+Rborist_varimp_fit_reg_tune$bestTune
+Rborist_varimp_fit_reg_tune_pred <- predict(Rborist_varimp_fit_reg_tune, flare_train_reg_val)
+Rborist_varimp_fit_reg_tune_RMSE <- RMSE(Rborist_varimp_fit_reg_tune_pred, flare_train_reg_val$C_class)
+Rborist_varimp_fit_reg_tune_RMSE
+  
+  #rf
+flare_train_reg_varimp_fits[[3]][["results"]]
+rf_reg_tune_grid <- expand.grid(mtry = c(1:5))
+set.seed(1, sample.kind="Rounding")
+rf_varimp_fit_reg_tune <- train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = "rf", data = flare_train_reg_trn, trControl = control, tuneGrid = rf_reg_tune_grid)
+rf_varimp_fit_reg_tune
+rf_varimp_fit_reg_tune$bestTune
+rf_varimp_fit_reg_tune_pred <- predict(rf_varimp_fit_reg_tune, flare_train_reg_val)
+rf_varimp_fit_reg_tune_RMSE <- RMSE(rf_varimp_fit_reg_tune_pred, flare_train_reg_val$C_class)
+rf_varimp_fit_reg_tune_RMSE
+
+  #pcaNNet
+flare_train_reg_varimp_fits[[4]][["results"]]
+pcaNNet_reg_tune_grid <- expand.grid(size = c(1:3), decay = c(0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1))
+set.seed(1, sample.kind="Rounding")
+pcaNNet_varimp_fit_reg_tune <- train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = "pcaNNet", data = flare_train_reg_trn, trControl = control, tuneGrid = pcaNNet_reg_tune_grid)
+pcaNNet_varimp_fit_reg_tune
+pcaNNet_varimp_fit_reg_tune$bestTune
+pcaNNet_varimp_fit_reg_tune_pred <- predict(pcaNNet_varimp_fit_reg_tune, flare_train_reg_val)
+pcaNNet_varimp_fit_reg_tune_RMSE <- RMSE(pcaNNet_varimp_fit_reg_tune_pred, flare_train_reg_val$C_class)
+pcaNNet_varimp_fit_reg_tune_RMSE
+
+  #neuralnet
+flare_train_reg_varimp_fits[[5]][["results"]]
+neuralnet_reg_tune_grid <- expand.grid(layer1 = c(1, 2, 3), layer2 = c(1, 2, 3), layer3 = c(1, 2, 3))
+set.seed(1, sample.kind="Rounding")
+neuralnet_varimp_fit_reg_tune <- train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = "neuralnet", data = flare_train_reg_trn, trControl = control, tuneGrid = neuralnet_reg_tune_grid, rep = 3, threshold = 0.1)
+neuralnet_varimp_fit_reg_tune
+neuralnet_varimp_fit_reg_tune$bestTune
+neuralnet_varimp_fit_reg_tune_pred <- predict(neuralnet_varimp_fit_reg_tune, flare_train_reg_val)
+neuralnet_varimp_fit_reg_tune_RMSE <- RMSE(neuralnet_varimp_fit_reg_tune_pred, flare_train_reg_val$C_class)
+neuralnet_varimp_fit_reg_tune_RMSE
+
+  #mlpML
+flare_train_reg_varimp_fits[[6]][["results"]]
+mlpML_reg_tune_grid <- expand.grid(layer1 = c(1, 2, 3), layer2 = c(1, 2, 3), layer3 = c(1, 2, 3))
+set.seed(1, sample.kind="Rounding")
+mlpML_varimp_fit_reg_tune <- train(C_class ~ Historically_complex + Mod_Zur_Class_Code + Lrgst_spot_size_code + Area + Evolution + Spot_dist_code, method = "mlpML", data = flare_train_reg_trn, trControl = control, tuneGrid = mlpML_reg_tune_grid)
+mlpML_varimp_fit_reg_tune
+mlpML_varimp_fit_reg_tune$bestTune
+mlpML_varimp_fit_reg_tune_pred <- predict(mlpML_varimp_fit_reg_tune, flare_train_reg_val)
+mlpML_varimp_fit_reg_tune_RMSE <- RMSE(mlpML_varimp_fit_reg_tune_pred, flare_train_reg_val$C_class)
+mlpML_varimp_fit_reg_tune_RMSE
+
+#earth
+flare_train_reg_earth_fit_rmses
+  #ranger
+flare_train_reg_earth_fits[[1]][["results"]]
+ranger_reg_tune_grid <- expand.grid(mtry = c(1:5), splitrule = c("variance", "extratrees"), min.node.size = c(2:8))
+set.seed(1, sample.kind="Rounding")
+ranger_earth_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "ranger", data = flare_train_reg_trn, trControl = control, tuneGrid = ranger_reg_tune_grid)
+ranger_earth_fit_reg_tune
+ranger_earth_fit_reg_tune$bestTune
+ranger_earth_fit_reg_tune_pred <- predict(ranger_earth_fit_reg_tune, flare_train_reg_val)
+ranger_earth_fit_reg_tune_RMSE <- RMSE(ranger_earth_fit_reg_tune_pred, flare_train_reg_val$C_class)
+ranger_earth_fit_reg_tune_RMSE
+  
+  #Rborist
+flare_train_reg_earth_fits[[2]][["results"]]
+Rborist_reg_tune_grid <- expand.grid(predFixed = c(2), minNode = c(2:10))
+set.seed(1, sample.kind="Rounding")
+Rborist_earth_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "Rborist", data = flare_train_reg_trn, trControl = control, tuneGrid = Rborist_reg_tune_grid)
+Rborist_earth_fit_reg_tune
+Rborist_earth_fit_reg_tune$bestTune
+Rborist_earth_fit_reg_tune_pred <- predict(Rborist_earth_fit_reg_tune, flare_train_reg_val)
+Rborist_earth_fit_reg_tune_RMSE <- RMSE(Rborist_earth_fit_reg_tune_pred, flare_train_reg_val$C_class)
+Rborist_earth_fit_reg_tune_RMSE
+  
+  #rf
+flare_train_reg_earth_fits[[3]][["results"]]
+rf_reg_tune_grid <- expand.grid(mtry = c(1:5))
+set.seed(1, sample.kind="Rounding")
+rf_earth_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "rf", data = flare_train_reg_trn, trControl = control, tuneGrid = rf_reg_tune_grid)
+rf_earth_fit_reg_tune
+rf_earth_fit_reg_tune$bestTune
+rf_earth_fit_reg_tune_pred <- predict(rf_earth_fit_reg_tune, flare_train_reg_val)
+rf_earth_fit_reg_tune_RMSE <- RMSE(rf_earth_fit_reg_tune_pred, flare_train_reg_val$C_class)
+rf_earth_fit_reg_tune_RMSE
+
+  #pcaNNet
+flare_train_reg_earth_fits[[4]][["results"]]
+pcaNNet_reg_tune_grid <- expand.grid(size = c(1:3), decay = c(0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1))
+set.seed(1, sample.kind="Rounding")
+pcaNNet_earth_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "pcaNNet", data = flare_train_reg_trn, trControl = control, tuneGrid = pcaNNet_reg_tune_grid)
+pcaNNet_earth_fit_reg_tune
+pcaNNet_earth_fit_reg_tune$bestTune
+pcaNNet_earth_fit_reg_tune_pred <- predict(pcaNNet_earth_fit_reg_tune, flare_train_reg_val)
+pcaNNet_earth_fit_reg_tune_RMSE <- RMSE(pcaNNet_earth_fit_reg_tune_pred, flare_train_reg_val$C_class)
+pcaNNet_earth_fit_reg_tune_RMSE
+
+  #neuralnet
+flare_train_reg_earth_fits[[5]][["results"]]
+neuralnet_reg_tune_grid <- expand.grid(layer1 = c(1, 2, 3), layer2 = c(1, 2, 3), layer3 = c(1, 2, 3))
+set.seed(1, sample.kind="Rounding")
+neuralnet_earth_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "neuralnet", data = flare_train_reg_trn, trControl = control, tuneGrid = neuralnet_reg_tune_grid, rep = 3, threshold = 0.1)
+neuralnet_earth_fit_reg_tune
+neuralnet_earth_fit_reg_tune$bestTune
+neuralnet_earth_fit_reg_tune_pred <- predict(neuralnet_earth_fit_reg_tune, flare_train_reg_val)
+neuralnet_earth_fit_reg_tune_RMSE <- RMSE(neuralnet_earth_fit_reg_tune_pred, flare_train_reg_val$C_class)
+neuralnet_earth_fit_reg_tune_RMSE
+  
+  #mlpML
+flare_train_reg_earth_fits[[6]][["results"]]
+mlpML_reg_tune_grid <- expand.grid(layer1 = c(1:3), layer2 = c(1:5), layer3 = c(1:6))
+set.seed(1, sample.kind="Rounding")
+mlpML_earth_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "mlpML", data = flare_train_reg_trn, trControl = control, tuneGrid = mlpML_reg_tune_grid)
+mlpML_earth_fit_reg_tune
+mlpML_earth_fit_reg_tune$bestTune
+mlpML_earth_fit_reg_tune_pred <- predict(mlpML_earth_fit_reg_tune, flare_train_reg_val)
+mlpML_earth_fit_reg_tune_RMSE <- RMSE(mlpML_earth_fit_reg_tune_pred, flare_train_reg_val$C_class)
+mlpML_earth_fit_reg_tune_RMSE
+
+
+#step
+flare_train_reg_step_fit_rmses
+  #ranger
+flare_train_reg_step_fits[[1]][["results"]]
+ranger_reg_tune_grid <- expand.grid(mtry = c(1:5), splitrule = c("variance", "extratrees"), min.node.size = c(2:10))
+set.seed(1, sample.kind="Rounding")
+ranger_step_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "ranger", data = flare_train_reg_trn, trControl = control, tuneGrid = ranger_reg_tune_grid)
+ranger_step_fit_reg_tune
+ranger_step_fit_reg_tune$bestTune
+ranger_step_fit_reg_tune_pred <- predict(ranger_step_fit_reg_tune, flare_train_reg_val)
+ranger_step_fit_reg_tune_RMSE <- RMSE(ranger_step_fit_reg_tune_pred, flare_train_reg_val$C_class)
+ranger_step_fit_reg_tune_RMSE
+
+  #Rborist
+flare_train_reg_step_fits[[2]][["results"]]
+Rborist_reg_tune_grid <- expand.grid(predFixed = c(2), minNode = c(2:15))
+set.seed(1, sample.kind="Rounding")
+Rborist_step_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "Rborist", data = flare_train_reg_trn, trControl = control, tuneGrid = Rborist_reg_tune_grid)
+Rborist_step_fit_reg_tune
+Rborist_step_fit_reg_tune$bestTune
+Rborist_step_fit_reg_tune_pred <- predict(Rborist_step_fit_reg_tune, flare_train_reg_val)
+Rborist_step_fit_reg_tune_RMSE <- RMSE(Rborist_step_fit_reg_tune_pred, flare_train_reg_val$C_class)
+Rborist_step_fit_reg_tune_RMSE
+
+  #rf
+flare_train_reg_step_fits[[3]][["results"]]
+rf_reg_tune_grid <- expand.grid(mtry = c(1:5))
+set.seed(1, sample.kind="Rounding")
+rf_step_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "rf", data = flare_train_reg_trn, trControl = control, tuneGrid = rf_reg_tune_grid)
+rf_step_fit_reg_tune
+rf_step_fit_reg_tune$bestTune
+rf_step_fit_reg_tune_pred <- predict(rf_step_fit_reg_tune, flare_train_reg_val)
+rf_step_fit_reg_tune_RMSE <- RMSE(rf_step_fit_reg_tune_pred, flare_train_reg_val$C_class)
+rf_step_fit_reg_tune_RMSE
+
+  #pcaNNet
+flare_train_reg_step_fits[[4]][["results"]]
+pcaNNet_reg_tune_grid <- expand.grid(size = c(1:3), decay = c(0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1))
+set.seed(1, sample.kind="Rounding")
+pcaNNet_step_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "pcaNNet", data = flare_train_reg_trn, trControl = control, tuneGrid = pcaNNet_reg_tune_grid)
+pcaNNet_step_fit_reg_tune
+pcaNNet_step_fit_reg_tune$bestTune
+pcaNNet_step_fit_reg_tune_pred <- predict(pcaNNet_step_fit_reg_tune, flare_train_reg_val)
+pcaNNet_step_fit_reg_tune_RMSE <- RMSE(pcaNNet_step_fit_reg_tune_pred, flare_train_reg_val$C_class)
+pcaNNet_step_fit_reg_tune_RMSE
+
+  #neuralnet
+flare_train_reg_step_fits[[5]][["results"]]
+neuralnet_reg_tune_grid <- expand.grid(layer1 = c(1, 2, 3), layer2 = c(1, 2, 3), layer3 = c(1, 2, 3))
+set.seed(1, sample.kind="Rounding")
+neuralnet_step_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "neuralnet", data = flare_train_reg_trn, trControl = control, tuneGrid = neuralnet_reg_tune_grid, rep = 3, threshold = 0.1)
+neuralnet_step_fit_reg_tune
+neuralnet_step_fit_reg_tune$bestTune
+neuralnet_step_fit_reg_tune_pred <- predict(neuralnet_step_fit_reg_tune, flare_train_reg_val)
+neuralnet_step_fit_reg_tune_RMSE <- RMSE(neuralnet_step_fit_reg_tune_pred, flare_train_reg_val$C_class)
+neuralnet_step_fit_reg_tune_RMSE
+
+  #mlpML
+flare_train_reg_step_fits[[6]][["results"]]
+mlpML_reg_tune_grid <- expand.grid(layer1 = c(1:3), layer2 = c(5:10), layer3 = c(5:10))
+set.seed(1, sample.kind="Rounding")
+mlpML_step_fit_reg_tune <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "mlpML", data = flare_train_reg_trn, trControl = control, tuneGrid = mlpML_reg_tune_grid)
+mlpML_step_fit_reg_tune
+mlpML_step_fit_reg_tune$bestTune
+mlpML_step_fit_reg_tune_pred <- predict(mlpML_step_fit_reg_tune, flare_train_reg_val)
+mlpML_step_fit_reg_tune_RMSE <- RMSE(mlpML_step_fit_reg_tune_pred, flare_train_reg_val$C_class)
+mlpML_step_fit_reg_tune_RMSE
+
+#Assemble & assess results & determine final test set RMSE(s)
+tuned_feature_selected_model_performance <- data.table("Model" = c("ranger","ranger","ranger", "Rborist", "Rborist", "Rborist", "rf", "rf", "rf", "pcaNNet", "pcaNNet", "pcaNNet", "neurlnet", "neurlnet", "neurlnet", "mlpML", "mlpML", "mlpML"),
+           "Feature Selection" = c("Variable Importance", "Earth Variable Importance", "Stepwise Regression", "Variable Importance", "Earth Variable Importance", "Stepwise Regression", "Variable Importance", "Earth Variable Importance", "Stepwise Regression", "Variable Importance", "Earth Variable Importance", "Stepwise Regression", "Variable Importance", "Earth Variable Importance", "Stepwise Regression", "Variable Importance", "Earth Variable Importance", "Stepwise Regression"),
+           "Model RMSE" = c(min(ranger_varimp_fit_reg_tune$results$RMSE), min(ranger_earth_fit_reg_tune$results$RMSE), min(ranger_step_fit_reg_tune$results$RMSE), 
+                          min(Rborist_varimp_fit_reg_tune$results$RMSE), min(Rborist_earth_fit_reg_tune$results$RMSE), min(Rborist_step_fit_reg_tune$results$RMSE), 
+                          min(rf_varimp_fit_reg_tune$results$RMSE), min(rf_earth_fit_reg_tune$results$RMSE), min(rf_step_fit_reg_tune$results$RMSE), 
+                          min(pcaNNet_varimp_fit_reg_tune$results$RMSE), min(pcaNNet_earth_fit_reg_tune$results$RMSE), min(pcaNNet_step_fit_reg_tune$results$RMSE), 
+                          min(neuralnet_varimp_fit_reg_tune$results$RMSE), min(neuralnet_earth_fit_reg_tune$results$RMSE), min(neuralnet_step_fit_reg_tune$results$RMSE), 
+                          min(mlpML_varimp_fit_reg_tune$results$RMSE), min(mlpML_earth_fit_reg_tune$results$RMSE), min(mlpML_step_fit_reg_tune$results$RMSE)),
+           "Validation Predicted RMSE" = c(
+                                         ranger_varimp_fit_reg_tune_RMSE, ranger_earth_fit_reg_tune_RMSE, ranger_step_fit_reg_tune_RMSE, 
+                                         Rborist_varimp_fit_reg_tune_RMSE, Rborist_earth_fit_reg_tune_RMSE, Rborist_step_fit_reg_tune_RMSE, 
+                                         rf_varimp_fit_reg_tune_RMSE, rf_earth_fit_reg_tune_RMSE, rf_step_fit_reg_tune_RMSE, 
+                                         pcaNNet_varimp_fit_reg_tune_RMSE, pcaNNet_earth_fit_reg_tune_RMSE, pcaNNet_step_fit_reg_tune_RMSE, 
+                                         neuralnet_varimp_fit_reg_tune_RMSE, neuralnet_earth_fit_reg_tune_RMSE, neuralnet_step_fit_reg_tune_RMSE, 
+                                         mlpML_varimp_fit_reg_tune_RMSE, mlpML_earth_fit_reg_tune_RMSE, mlpML_step_fit_reg_tune_RMSE))
+
+tuned_feature_selected_model_performance
+tuned_feature_selected_model_performance %>% arrange(`Model RMSE`)
+tuned_feature_selected_model_performance %>% arrange(`Validation Predicted RMSE`)
+
+#Difference between trained RMSE and that calculated using validation set indicates a degree of overtraining.
+#Given the poor performance even at trained model level it would still be too inaccurate to be a great deal of use
+#were the overtraining eliminated and the validation set RMSE more reflective of the trained model performance.
+
+#In terms of feature selection, for model performance stepwise regression generally gave a more favourable RMSE, 
+#however when it came to RMSE on the validation set it was more split between Variable Importance calculated from an
+#Earth model and Stepwise Regression. It should be noted, this result may be a little misleading as it could be
+#reasonably expected for this to change were the potential overtraining dealt with.
+#With this in mind we will retrain the models that performed best on the validation set on the basis that the
+#RMSEs in the validation set predictions is a better reflection of actual performance. We will use the exact same 
+#features and tuning parameters as was used before. This time, however, the full training set (including validation)
+#will be used for training and the test set used for predictions.
+
+#training control adjustment to try to deal with overtraining
+control <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
+
+#Models
+
+#Rborist - Earth Variable Importance
+Rborist_reg_tune_grid <- expand.grid(predFixed = 2, minNode = 9)
+set.seed(1, sample.kind="Rounding")
+Rborist_earth_fit_reg_tune_fin <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "Rborist", data = flare_train_reg, trControl = control, tuneGrid = Rborist_reg_tune_grid)
+Rborist_earth_fit_reg_tune_fin
+Rborist_earth_fit_reg_tune_fin_pred <- predict(Rborist_earth_fit_reg_tune_fin, flare_test_reg)
+Rborist_earth_fit_reg_tune_fin_RMSE <- RMSE(Rborist_earth_fit_reg_tune_fin_pred, flare_test_reg$C_class)
+Rborist_earth_fit_reg_tune_fin_RMSE
+
+#Rborist - Stepwise Regression
+Rborist_reg_tune_grid <- expand.grid(predFixed = 2, minNode = 14)
+set.seed(1, sample.kind="Rounding")
+Rborist_step_fit_reg_tune_fin <- train(C_class ~ Mod_Zur_Class_Code + Lrgst_spot_size_code + Activity + Area, method = "Rborist", data = flare_train_reg, trControl = control, tuneGrid = Rborist_reg_tune_grid)
+Rborist_step_fit_reg_tune_fin
+Rborist_step_fit_reg_tune_fin_pred <- predict(Rborist_step_fit_reg_tune_fin, flare_test_reg)
+Rborist_step_fit_reg_tune_fin_RMSE <- RMSE(Rborist_step_fit_reg_tune_fin_pred, flare_test_reg$C_class)
+Rborist_step_fit_reg_tune_fin_RMSE
+
+#ranger -  Earth Variable Importance
+ranger_reg_tune_grid <- expand.grid(mtry = 2, splitrule = "variance", min.node.size = 7)
+set.seed(1, sample.kind="Rounding")
+ranger_earth_fit_reg_tune_fin <- train(C_class ~ Mod_Zur_Class_Code + Activity + Lrgst_spot_size_code + Spot_dist_code + Area, method = "ranger", data = flare_train_reg, trControl = control, tuneGrid = ranger_reg_tune_grid)
+ranger_earth_fit_reg_tune_fin
+ranger_earth_fit_reg_tune_fin_pred <- predict(ranger_earth_fit_reg_tune_fin, flare_test_reg)
+ranger_earth_fit_reg_tune_fin_RMSE <- RMSE(ranger_earth_fit_reg_tune_fin_pred, flare_test_reg$C_class)
+ranger_earth_fit_reg_tune_fin_RMSE
+
+
+Rborist_earth_fit_reg_tune_fin_RMSE
+Rborist_step_fit_reg_tune_fin_RMSE
+ranger_earth_fit_reg_tune_fin_RMSE
+#All predictions made on the test set produce a more accurate result.
+#Investigate
+
+#Check C-class value distribution across train/val/test. This should be broadly the same, as per CreatePartition
+#Caret documentation
+flare_train_reg %>% group_by(C_class) %>% summarise(n = n()/length(flare_train_reg$C_class))
+flare_train_reg_trn %>% group_by(C_class) %>% summarise(n = n()/length(flare_train_reg_trn$C_class))
+flare_train_reg_val %>% group_by(C_class) %>% summarise(n = n()/length(flare_train_reg_val$C_class))
+flare_test_reg %>% group_by(C_class) %>% summarise(n = n()/length(flare_test_reg$C_class))
+#Mostly the same, differences observed aren't going to be large enough to produce observed effect.
+
+#Check cross validation parameters
+#initial training method repeatedcv, 10 folds, 5 repeats
+#This approach could be more likely to decrease accuracy, given the imbalance in the data. If the likelihood of the
+#fold validation sets containing all zero flare events the model could be optimised to over predict zero flare events.
+#This could explain the consistent difference in training and validation RMSEs observed for all models.
+
+#The other possible explanation is the increased size of the training set has precipitated a more accurate model 
+#simply by having a greater range of data with which to work.
+
+
+#ranger_earth_fit_reg_tune_fin_RMSE model produces most accurate result, though the overall fit is very poor - RMSE, 0.604957.
+#Plot model predictions against actual values - establish relative performance
+ggplot() +
+  geom_point(aes(flare_test_reg$C_class, ranger_earth_fit_reg_tune_fin_pred), alpha = 0.1) +
+  geom_abline(intercept = 0, slope = 1) +
+  ggtitle("Ranger - Earth Variable Importance Features") +
+  xlab("Actual Value") +
+  ylab("Predicted Value") +
+  ylim(0, 4)
+
+#Model highly likely to under predict for 1+ flare events and over predict for zero flare events. As one might 
+#expect, the high frequency of zero flare events in the training data has resulted in a model that is skewed in that
+#direction. This is something that should definitely be addressed down the line.
+
+
+
+#Further work down the line.
+#Investigate the value in first creating a model to make a binary choice between zero and 1+ flare events followed
+#by a model specifically to predict the number of flare events over 0.
+#Revisit balancing the dataset for use with regression models and compare to imbalanced dataset.
+
+
+
+save.image(file = "fin_flr.RData")
+
 
